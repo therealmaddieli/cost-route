@@ -9,7 +9,7 @@
         -260,
         300
       ],
-      "id": "df1421d9-0c1a-4a95-9b35-09d087cacb1d",
+      "id": "a2a6c90a-9279-4b9f-9373-dbb963f81f19",
       "name": "Manual Trigger"
     },
     {
@@ -24,7 +24,7 @@
         20,
         160
       ],
-      "id": "c2706d9e-e223-4370-8459-449f0123434b",
+      "id": "b00aced7-5cc9-46f5-9e5a-02cd43ae892c",
       "name": "OpenRouter catalogue"
     },
     {
@@ -39,8 +39,23 @@
         20,
         440
       ],
-      "id": "68f7e50e-50ed-4ea5-8d95-66e6f061bb4f",
+      "id": "6b054fc3-ac90-4aa7-a231-1bcf71ca4ffc",
       "name": "HF router catalogue"
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 2,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.1,
+      "position": [
+        170,
+        300
+      ],
+      "id": "b23c926d-e10e-4c3b-a519-2a22f672ad49",
+      "name": "Merge catalogues"
     },
     {
       "parameters": {
@@ -50,10 +65,10 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        300,
+        380,
         300
       ],
-      "id": "b53b5b61-a960-417d-8261-bc1556fa8372",
+      "id": "16ca7233-73f6-4798-9b55-f55ab7eb72e0",
       "name": "Plan the run"
     },
     {
@@ -64,24 +79,24 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        580,
+        640,
         300
       ],
-      "id": "9b1c0748-42dd-4ab6-8138-d1f311ae5e78",
+      "id": "afadab61-7a41-41d6-a12e-642514910495",
       "name": "Call candidates (timed)"
     },
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Rule-based gate: correct share against known answers, p50/p95 latency, and a hallucination flag\n// with the offending answer attached. No LLM judge.\nconst rows = $input.all().map(function (i) { return i.json; });\nfunction hits(text, pats) {\n  for (const p of (pats || [])) {\n    try { if (new RegExp(p, \"i\").test(text)) return true; } catch (e) { /* a bad pattern is not a match */ }\n  }\n  return false;\n}\nfunction pct(sorted, p) {\n  if (!sorted.length) return null;\n  return Math.round(sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))]);\n}\nconst groups = {};\nfor (const r of rows) {\n  if (!groups[r.slug]) groups[r.slug] = { name: r.candidate, slug: r.slug, route: r.route, source: r.source, provider: r.provider, incumbent: r.incumbent, validation: r.validation, validation_notes: r.validation_notes, calls: [] };\n  const answered = r.status === 200 && r.answer && r.answer.length > 0;\n  groups[r.slug].calls.push({\n    id: r.question_id, kind: r.question_kind, answered: answered,\n    correct: answered && hits(r.answer, r.accept) && !hits(r.answer, r.reject),\n    fabricated: answered && !hits(r.answer, r.accept) && hits(r.answer, r.reject),\n    latency_ms: r.latency_ms, usage: r.usage, answer: r.answer, status: r.status, error: r.error,\n  });\n}\nconst out = [];\nfor (const key in groups) {\n  const c = groups[key];\n  const answered = c.calls.filter(function (x) { return x.answered; });\n  const correct = answered.filter(function (x) { return x.correct; }).length;\n  const fabricated = answered.filter(function (x) { return x.fabricated; }).length;\n  const lat = answered.map(function (x) { return x.latency_ms; }).sort(function (a, b) { return a - b; });\n  const share = answered.length ? correct / answered.length : null;\n  const bar = {\"min_correct_share\":0.75,\"notes\":\"11 of 14 correct. Set from the buyer's stated tolerance: a wrong answer on a contract question costs a lawyer more to catch than the model costs to run.\",\"max_hallucinations\":0};\n  const fails = [];\n  if (share !== null && share < bar.min_correct_share) fails.push(Math.round(share * 100) + \"% correct, below the \" + Math.round(bar.min_correct_share * 100) + \"% bar\");\n  if (fabricated > bar.max_hallucinations) fails.push(fabricated + \" fabricated answer\" + (fabricated === 1 ? \"\" : \"s\") + \", above the limit of \" + bar.max_hallucinations);\n  const p50 = pct(lat, 0.5);\n  const p95 = pct(lat, 0.95);\n  if (p50 !== null && p50 > 15000) fails.push(\"p50 \" + p50 + \"ms is above the \" + 15000 + \"ms ceiling\");\n  if (!answered.length) fails.push(\"no call was served\");\n  const sum = function (fn) { return answered.reduce(function (s, x) { return s + fn(x); }, 0); };\n  const n = answered.length || 1;\n  out.push({ json: Object.assign({}, c, {\n    scored: answered.length, total: c.calls.length, correct: correct, fabricated: fabricated,\n    share: share, p50: p50, p95: p95, passed: fails.length === 0, fail_reasons: fails,\n    measured_input_tokens_per_call: Math.round(sum(function (x) { return (x.usage && x.usage.prompt_tokens) || 0; }) / n),\n    measured_output_tokens_per_call: Math.round(sum(function (x) { return (x.usage && x.usage.completion_tokens) || 0; }) / n),\n    measured_cached_input_tokens_per_call: Math.round(sum(function (x) { return (x.usage && x.usage.prompt_tokens_details && x.usage.prompt_tokens_details.cached_tokens) || 0; }) / n),\n    measured_reasoning_tokens_per_call: Math.round(sum(function (x) { return (x.usage && x.usage.completion_tokens_details && x.usage.completion_tokens_details.reasoning_tokens) || 0; }) / n),\n  })});\n}\nreturn out;"
+        "jsCode": "// Rule-based gate, ported from core/scorer.mjs so the canvas and the repository score the same\n// answers the same way. The first n8n version regex-tested the raw text and scored GPT-4o mini 5/14\n// where the repo scored 12/14: contracts spell numbers as \"twenty-four (24) months\", and no\n// number-then-unit pattern matches with a \")\" in between. Normalising that away first is the whole\n// difference, and without it the workflow contradicted the published page about the same answers.\nfunction normalise(text) {\n  return String(text == null ? \"\" : text)\n    .toLowerCase()\n    .replace(/[\\u2010-\\u2015\\u2212]/g, \"-\")\n    .replace(/[\\u00a0\\u2007\\u202f]/g, \" \")\n    .replace(/[\\u0060*_>#]|\\*\\*|__/g, \" \")\n    .replace(/\\(\\s*(\\d[\\d,.]*\\s*%?)\\s*\\)/g, \"$1\")\n    .replace(/\\s+/g, \" \")\n    .trim();\n}\nfunction matchAny(haystack, patterns) {\n  for (const p of (patterns || [])) {\n    try { if (new RegExp(p, \"i\").test(haystack)) return p; } catch (e) { /* a bad pattern is skipped, not fatal */ }\n  }\n  return null;\n}\nfunction scoreItem(item, answer) {\n  const text = normalise(answer);\n  const kind = item.kind || \"fact\";\n  // Absent items are scored the other way round: the only thing worth measuring is whether the\n  // model says the document is silent. Checking accept first stops a correct \"not specified\" being\n  // overturned by a figure the model mentioned from elsewhere.\n  if (kind === \"absent\") {\n    const accepted = matchAny(text, item.accept);\n    const rejected = matchAny(text, item.reject);\n    if (accepted) return { correct: true, hallucination: false, needs_review: false, hedged: Boolean(rejected) };\n    if (rejected) return { correct: false, hallucination: true, needs_review: false, hedged: false };\n    return { correct: false, hallucination: false, needs_review: true, hedged: false };\n  }\n  const rejected = matchAny(text, item.reject);\n  if (rejected) return { correct: false, hallucination: true, needs_review: false, hedged: false };\n  const accepted = matchAny(text, item.accept);\n  if (accepted) return { correct: true, hallucination: false, needs_review: false, hedged: false };\n  return { correct: false, hallucination: false, needs_review: true, hedged: false };\n}\nfunction percentile(values, p) {\n  const v = values.filter(function (n) { return typeof n === \"number\" && isFinite(n); }).sort(function (a, b) { return a - b; });\n  if (!v.length) return null;\n  if (v.length === 1) return v[0];\n  const idx = (v.length - 1) * p;\n  const lo = Math.floor(idx);\n  const hi = Math.ceil(idx);\n  return lo === hi ? v[lo] : v[lo] + (v[hi] - v[lo]) * (idx - lo);\n}\nconst rows = $input.all().map(function (i) { return i.json; });\nconst groups = {};\nfor (const r of rows) {\n  if (!groups[r.slug]) groups[r.slug] = { name: r.candidate, slug: r.slug, route: r.route, source: r.source, provider: r.provider, incumbent: r.incumbent, validation: r.validation, validation_notes: r.validation_notes, calls: [] };\n  const answered = r.status === 200 && r.answer && r.answer.length > 0;\n  groups[r.slug].calls.push({\n    id: r.question_id, kind: r.question_kind, answered: answered,\n    score: answered ? scoreItem(r, r.answer) : null,\n    latency_ms: r.latency_ms, usage: r.usage, answer: r.answer, status: r.status, error: r.error,\n  });\n}\nconst out = [];\nfor (const key in groups) {\n  const c = groups[key];\n  const answered = c.calls.filter(function (x) { return x.answered; });\n  const scored = answered.filter(function (x) { return x.score; });\n  const correct = scored.filter(function (x) { return x.score.correct; }).length;\n  const fabricated = scored.filter(function (x) { return x.score.hallucination; }).length;\n  const needsReview = scored.filter(function (x) { return x.score.needs_review; }).length;\n  const lat = answered.map(function (x) { return x.latency_ms; });\n  const share = scored.length ? correct / scored.length : null;\n  const bar = {\"min_correct_share\":0.75,\"notes\":\"11 of 14 correct. Set from the buyer's stated tolerance: a wrong answer on a contract question costs a lawyer more to catch than the model costs to run.\",\"max_hallucinations\":0};\n  const fails = [];\n  if (share !== null && share < bar.min_correct_share) fails.push(Math.round(share * 100) + \"% correct, below the \" + Math.round(bar.min_correct_share * 100) + \"% bar\");\n  if (fabricated > bar.max_hallucinations) fails.push(fabricated + \" fabricated answer\" + (fabricated === 1 ? \"\" : \"s\") + \", above the limit of \" + bar.max_hallucinations);\n  const p50 = percentile(lat, 0.5);\n  const p95 = percentile(lat, 0.95);\n  if (p50 !== null && p50 > 15000) fails.push(\"p50 \" + Math.round(p50) + \"ms is above the \" + 15000 + \"ms ceiling\");\n  if (!scored.length) fails.push(\"no call was served\");\n  const sum = function (fn) { return scored.reduce(function (s, x) { return s + fn(x); }, 0); };\n  const n = scored.length || 1;\n  out.push({ json: Object.assign({}, c, {\n    scored: scored.length, total: c.calls.length, correct: correct, fabricated: fabricated, needs_review: needsReview,\n    share: share, p50: p50 == null ? null : Math.round(p50), p95: p95 == null ? null : Math.round(p95),\n    passed: fails.length === 0, fail_reasons: fails,\n    measured_input_tokens_per_call: Math.round(sum(function (x) { return (x.usage && x.usage.prompt_tokens) || 0; }) / n),\n    measured_output_tokens_per_call: Math.round(sum(function (x) { return (x.usage && x.usage.completion_tokens) || 0; }) / n),\n    measured_cached_input_tokens_per_call: Math.round(sum(function (x) { return (x.usage && x.usage.prompt_tokens_details && x.usage.prompt_tokens_details.cached_tokens) || 0; }) / n),\n    measured_reasoning_tokens_per_call: Math.round(sum(function (x) { return (x.usage && x.usage.completion_tokens_details && x.usage.completion_tokens_details.reasoning_tokens) || 0; }) / n),\n  })});\n}\nreturn out;"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        860,
+        900,
         300
       ],
-      "id": "54342884-b9a4-463b-8cd8-8ac0a2ea93dc",
+      "id": "3838e1a0-e2f3-470a-8dd1-4a91dca3f415",
       "name": "Score: the quality gate"
     },
     {
@@ -92,16 +107,16 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1140,
+        1160,
         300
       ],
-      "id": "b81227cb-0f9b-4e99-8e47-d82abfbe5b6d",
+      "id": "63679ed6-cc39-4632-b315-2b6d4c298807",
       "name": "Cost engine"
     },
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// The three procurement routes. Route C is an estimate from named assumptions and is never given a\n// monthly figure beside the two quoted routes.\nconst cands = $input.all().map(function (i) { return i.json; });\nconst selfHost = {\n  route: \"C\", label: \"Open weights, self-hosted\", candidate: \"any open-weight model (illustrative)\",\n  monthly_cost_usd: null,\n  note: \"An estimate from named assumptions, not a quoted price: one GPU instance held up all month, before throughput engineering, capacity planning, failover and an on-call rota. Everything except hardware cost is the buyer's.\",\n};\nconst rows = cands.map(function (c) {\n  const v = c.validation || {};\n  const notes = [];\n  if (c.route === \"B\") {\n    if (v.providers_live != null) notes.push(v.providers_live + \" live provider\" + (v.providers_live === 1 ? \"\" : \"s\") + \" listed for this model.\");\n    notes.push(\"Open weights: the licence is nameable and readable, and gating is a real step that is not in the price.\");\n  } else {\n    notes.push(\"One endpoint and one key. No weights to run and no serving stack to maintain.\");\n    if (v.cache_read_per_m != null) notes.push(\"Publishes a cache-read rate, so the prompt-caching discount depends on prompt structure rather than on choosing this model.\");\n    notes.push(\"Vendor lock: the model can be withdrawn or repriced without notice, and the only signal is its disappearance from the catalogue.\");\n  }\n  if (v.tier_min_prompt_tokens != null) notes.push(\"Tiered rate above \" + v.tier_min_prompt_tokens + \" prompt tokens, so long-context work costs more than the list price.\");\n  return { route: c.route, label: c.route === \"A\" ? \"Closed API model\" : \"Open weights, served by a third party\", candidate: c.name, slug: c.slug, monthly_cost_usd: c.monthly_cost_usd, priced: c.priced, note: notes.join(\" \") };\n});\nrows.push(selfHost);\nreturn rows.map(function (r) { return { json: r }; });"
+        "jsCode": "// The three procurement routes. Route C is an estimate from named assumptions and is never given a\n// monthly figure beside the two quoted routes.\nconst cands = $input.all().map(function (i) { return i.json; });\nconst selfHost = {\n  route: \"C\", label: \"Open weights, self-hosted\", candidate: \"any open-weight model (illustrative)\",\n  monthly_cost_usd: null,\n  note: \"An estimate from named assumptions, not a quoted price: one GPU instance held up all month, before throughput engineering, capacity planning, failover and an on-call rota. Everything except hardware cost is the buyer's.\",\n};\nconst rows = cands.map(function (c) {\n  const v = c.validation || {};\n  const notes = [];\n  if (c.route === \"B\") {\n    if (v.providers_live != null) notes.push(v.providers_live + \" live provider\" + (v.providers_live === 1 ? \"\" : \"s\") + \" listed for this model.\");\n    notes.push(\"Open weights: the licence is nameable and readable, and gating is a real step that is not in the price.\");\n  } else {\n    notes.push(\"One endpoint and one key. No weights to run and no serving stack to maintain.\");\n    if (v.cache_read_per_m != null) notes.push(\"Publishes a cache-read rate, so the prompt-caching discount depends on prompt structure rather than on choosing this model.\");\n    notes.push(\"Vendor lock: the model can be withdrawn or repriced without notice, and the only signal is its disappearance from the catalogue.\");\n  }\n  if (v.tier_min_prompt_tokens != null) notes.push(\"Tiered rate above \" + v.tier_min_prompt_tokens + \" prompt tokens, so long-context work costs more than the list price.\");\n  return { route: c.route, label: c.route === \"A\" ? \"Closed API model\" : \"Open weights, served by a third party\", candidate: c.name, slug: c.slug, monthly_cost_usd: c.monthly_cost_usd, priced: c.priced, note: notes.join(\" \") };\n});\nrows.push(selfHost);\n// The candidate list travels with the route table, and that is load-bearing rather than tidy: the\n// ledger node reads the candidates from here. Returning only the rows is what broke the first run.\nreturn [{ json: { routes: rows, candidates: cands } }];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -109,54 +124,36 @@
         1420,
         300
       ],
-      "id": "3189db5a-57dc-4725-affd-32fc4bfdd125",
+      "id": "b916f7b8-a06f-4887-8479-4ed55b1cdeff",
       "name": "Three routes"
     },
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Buyer's stated estimate, the buyer's own assumptions priced out, and the measurement. The gap\n// between the first two is arithmetic; the gap between the last two is the measurement.\nconst cands = $input.all().map(function (i) { return i.json; });\nconst incumbent = cands.filter(function (c) { return c.incumbent; })[0] || cands[0];\nconst vol = 20000;\nconst be = {\"assumed_input_tokens_per_request\":1500,\"assumed_output_tokens_per_request\":50,\"assumed_cost_per_month_usd\":18,\"stated_assumption\":\"Buyer assumed a 1,500-token contract and a roughly 50-token answer, on a mid-tier model.\",\"note\":\"Deliberately approximate. The gap between this and the measurement is the headline of the report.\"};\nconst toRate = function (perM) { return perM == null ? null : perM / 1e6; };\nconst inRate = toRate(incumbent.pricing.input_per_m) || 0;\nconst outRate = toRate(incumbent.pricing.output_per_m) || 0;\nconst cacheRate = toRate(incumbent.pricing.cache_read_per_m);\nconst own = (be.assumed_input_tokens_per_request * inRate + be.assumed_output_tokens_per_request * outRate) * vol;\nconst measuredPrompt = incumbent.measured_input_tokens_per_call || 0;\nconst measuredOut = incumbent.measured_output_tokens_per_call || 0;\nconst measuredCached = incumbent.measured_cached_input_tokens_per_call || 0;\nconst promptStep = (measuredPrompt - be.assumed_input_tokens_per_request) * inRate * vol;\nconst answerStep = (measuredOut - be.assumed_output_tokens_per_request) * outRate * vol;\nconst cacheStep = cacheRate == null ? 0 : -(measuredCached * (inRate - cacheRate)) * vol;\nreturn [{ json: {\n  incumbent: incumbent.name,\n  stated_estimate_usd: be.assumed_cost_per_month_usd,\n  own_assumptions_usd: own,\n  measured_usd: incumbent.monthly_cost_usd,\n  arithmetic_gap_usd: be.assumed_cost_per_month_usd - own,\n  measurement_gap_usd: incumbent.monthly_cost_usd == null ? null : incumbent.monthly_cost_usd - own,\n  steps: [\n    { label: \"Prompt size\", from: be.assumed_input_tokens_per_request, to: measuredPrompt, usd: promptStep },\n    { label: \"Answer length\", from: be.assumed_output_tokens_per_request, to: measuredOut, usd: answerStep },\n    { label: \"Prompt caching\", from: 0, to: measuredCached, usd: cacheStep },\n  ],\n  candidates: cands.map(function (c) {\n    return { name: c.name, route: c.route, passed: c.passed, share: c.share, correct: c.correct, scored: c.scored, total: c.total, fabricated: c.fabricated, p50: c.p50, p95: c.p95, cost_per_call_usd: c.cost_per_call_usd, monthly_cost_usd: c.monthly_cost_usd, priced: c.priced, fail_reasons: c.fail_reasons };\n  }),\n}}];"
+        "jsCode": "// Buyer's stated estimate, the buyer's own assumptions priced out, and the measurement. The gap\n// between the first two is arithmetic; the gap between the last two is the measurement.\n//\n// This node reads the object the previous node produced, not the raw items, because the previous\n// node is a summariser: Three routes turns the candidate list into a route table, so the candidates\n// have to travel with it. The first version of that node returned only the rows, and this node then\n// read the wrong shape and died on incumbent.pricing.input_per_m - after all 42 calls had been made\n// and paid for. A summarising node that drops its input breaks everything downstream of it.\nconst carried = $input.first().json || {};\nconst cands = carried.candidates || [];\nconst routes = carried.routes || [];\nconst priced = cands.filter(function (c) { return c && c.pricing; });\nif (!priced.length) {\n  return [{ json: { available: false, reason: \"no priced candidate reached the ledger\", routes: routes } }];\n}\nconst incumbent = priced.filter(function (c) { return c.incumbent; })[0] || priced[0];\nconst vol = 20000;\nconst be = {\"assumed_input_tokens_per_request\":1500,\"assumed_output_tokens_per_request\":50,\"assumed_cost_per_month_usd\":18,\"stated_assumption\":\"Buyer assumed a 1,500-token contract and a roughly 50-token answer, on a mid-tier model.\",\"note\":\"Deliberately approximate. The gap between this and the measurement is the headline of the report.\"};\nconst toRate = function (perM) { return perM == null ? null : perM / 1e6; };\nconst inRate = toRate(incumbent.pricing.input_per_m) || 0;\nconst outRate = toRate(incumbent.pricing.output_per_m) || 0;\nconst cacheRate = toRate(incumbent.pricing.cache_read_per_m);\nconst own = (be.assumed_input_tokens_per_request * inRate + be.assumed_output_tokens_per_request * outRate) * vol;\nconst measuredPrompt = incumbent.measured_input_tokens_per_call || 0;\nconst measuredOut = incumbent.measured_output_tokens_per_call || 0;\nconst measuredCached = incumbent.measured_cached_input_tokens_per_call || 0;\nconst promptStep = (measuredPrompt - be.assumed_input_tokens_per_request) * inRate * vol;\nconst answerStep = (measuredOut - be.assumed_output_tokens_per_request) * outRate * vol;\nconst cacheStep = cacheRate == null ? 0 : -(measuredCached * (inRate - cacheRate)) * vol;\nreturn [{ json: {\n  available: true,\n  incumbent: incumbent.name,\n  routes: routes,\n  stated_estimate_usd: be.assumed_cost_per_month_usd,\n  own_assumptions_usd: own,\n  measured_usd: incumbent.monthly_cost_usd,\n  arithmetic_gap_usd: be.assumed_cost_per_month_usd - own,\n  measurement_gap_usd: incumbent.monthly_cost_usd == null ? null : incumbent.monthly_cost_usd - own,\n  steps: [\n    { label: \"Prompt size\", from: be.assumed_input_tokens_per_request, to: measuredPrompt, usd: promptStep },\n    { label: \"Answer length\", from: be.assumed_output_tokens_per_request, to: measuredOut, usd: answerStep },\n    { label: \"Prompt caching\", from: 0, to: measuredCached, usd: cacheStep },\n  ],\n  candidates: cands.map(function (c) {\n    return { name: c.name, route: c.route, passed: c.passed, share: c.share, correct: c.correct, scored: c.scored, total: c.total, fabricated: c.fabricated, p50: c.p50, p95: c.p95, cost_per_call_usd: c.cost_per_call_usd, monthly_cost_usd: c.monthly_cost_usd, priced: c.priced, fail_reasons: c.fail_reasons };\n  }),\n}}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1700,
+        1680,
         300
       ],
-      "id": "363f385b-32b6-4c76-9201-d3ea825640f7",
+      "id": "d895be7a-d2ca-4a9c-9ce0-e44610b624d7",
       "name": "Estimate vs measured"
     },
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// A compact decision summary as one HTML string. The full published page is rendered by\n// core/report.mjs in the repository; this is the canvas-native version of the same argument.\nconst ledger = $input.first().json;\nconst usd = function (n, p) { return n == null || !isFinite(n) ? \"n/a\" : \"$\" + Number(n).toFixed(p == null ? 2 : p); };\nconst pctTxt = function (s) { return s == null ? \"not measured\" : Math.round(s * 100) + \"%\"; };\nconst rows = ledger.candidates.map(function (c) {\n  return \"<tr><td>\" + c.name + \"</td><td>route \" + c.route + \"</td><td>\" + (c.passed ? \"PASS\" : \"FAIL\") + \"</td><td>\" + pctTxt(c.share) + \" (\" + c.correct + \"/\" + c.scored + \")</td><td>\" + (c.p50 == null ? \"n/a\" : c.p50 + \" ms\") + \"</td><td>\" + usd(c.cost_per_call_usd, 4) + \"</td><td>\" + usd(c.monthly_cost_usd) + \"</td></tr>\";\n}).join(\"\");\nconst steps = ledger.steps.map(function (s) {\n  return \"<tr><td>\" + s.label + \"</td><td>\" + s.from + \" to \" + s.to + \"</td><td>\" + (s.usd >= 0 ? \"+\" : \"\") + usd(Math.abs(s.usd)) + \"</td></tr>\";\n}).join(\"\");\nconst html = [\n  \"<!doctype html><html lang=\\\"en\\\"><head><meta charset=\\\"utf-8\\\"><title>Cost-Route - n8n run</title>\",\n  \"<style>body{font:15px/1.55 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;max-width:900px;margin:40px auto;padding:0 24px;color:#14161a;background:#fbfbfc}\",\n  \"h1{font-size:24px}h2{font-size:17px;margin-top:32px}table{width:100%;border-collapse:collapse;font-size:14px}\",\n  \"th,td{text-align:left;padding:8px 10px;border-bottom:1px solid #e3e6ea}th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#6b7280}\",\n  \".big{font:600 30px ui-monospace,Menlo,monospace}.hint{color:#6b7280;font-size:12.5px}.pass{color:#1f6f43;font-weight:600}.fail{color:#a4262c;font-weight:600}</style></head><body>\",\n  \"<h1>Cost-Route: a measured decision from n8n</h1>\",\n  \"<p class=\\\"hint\\\">\" + \"Legal contract review\" + \", \" + Number(20000).toLocaleString() + \" requests a month. Live calls made by this workflow; catalogue rates read at run time.</p>\",\n  \"<h2>Where the estimate went wrong</h2>\",\n  \"<p>The buyer said <b>\" + usd(ledger.stated_estimate_usd) + \"</b>. Their own assumptions cost <b>\" + usd(ledger.own_assumptions_usd) + \"</b>. The calls actually cost <b class=\\\"big\\\">\" + usd(ledger.measured_usd) + \"</b> a month.</p>\",\n  \"<p class=\\\"hint\\\">Arithmetic gap \" + usd(ledger.arithmetic_gap_usd) + \" (an estimate that does not follow from its own inputs); measurement gap \" + usd(ledger.measurement_gap_usd) + \" (the part only measuring could find).</p>\",\n  \"<table><thead><tr><th>Step</th><th>Tokens per call</th><th>Effect</th></tr></thead><tbody>\" + steps + \"</tbody></table>\",\n  \"<h2>Every candidate, at this volume</h2>\",\n  \"<table><thead><tr><th>Candidate</th><th>Route</th><th>Gate</th><th>Correct</th><th>p50</th><th>Per call</th><th>Monthly</th></tr></thead><tbody>\" + rows + \"</tbody></table>\",\n  \"<h2>Assumptions</h2><ul><li>Synthetic contract and questions; no client documents.</li>\",\n  \"<li>Quality bar \" + Math.round({\"min_correct_share\":0.75,\"notes\":\"11 of 14 correct. Set from the buyer's stated tolerance: a wrong answer on a contract question costs a lawyer more to catch than the model costs to run.\",\"max_hallucinations\":0}.min_correct_share * 100) + \"% correct with at most \" + {\"min_correct_share\":0.75,\"notes\":\"11 of 14 correct. Set from the buyer's stated tolerance: a wrong answer on a contract question costs a lawyer more to catch than the model costs to run.\",\"max_hallucinations\":0}.max_hallucinations + \" fabricated answers; latency ceiling \" + 15000 + \" ms.</li>\",\n  \"<li>Route C, self-hosted, is an estimate from named assumptions and never a quoted price.</li>\",\n  \"<li>Prices move. Re-running this workflow reproduces the method, not these exact figures.</li></ul>\",\n  \"<p class=\\\"hint\\\">Generated by the Cost-Route n8n workflow. Full interactive page: https://therealmaddieli.github.io/cost-route/</p>\",\n  \"</body></html>\",\n].join(\"\");\nreturn [{ json: { html: html, filename: \"cost-route-summary.html\" } }];"
+        "jsCode": "// A compact decision summary as one HTML string. The full published page is rendered by\n// core/report.mjs in the repository; this is the canvas-native version of the same argument.\nconst ledger = $input.first().json;\nif (!ledger || ledger.available === false) {\n  const reason = (ledger && ledger.reason) || \"the ledger node produced nothing\";\n  return [{ json: { html: \"<!doctype html><html lang=\\\"en\\\"><body><h1>Cost-Route: no ledger</h1><p>\" + reason + \"</p></body></html>\", filename: \"cost-route-summary.html\" } }];\n}\nconst usd = function (n, p) { return n == null || !isFinite(n) ? \"n/a\" : \"$\" + Number(n).toFixed(p == null ? 2 : p); };\nconst pctTxt = function (s) { return s == null ? \"not measured\" : Math.round(s * 100) + \"%\"; };\nconst rows = ledger.candidates.map(function (c) {\n  return \"<tr><td>\" + c.name + \"</td><td>route \" + c.route + \"</td><td>\" + (c.passed ? \"PASS\" : \"FAIL\") + \"</td><td>\" + pctTxt(c.share) + \" (\" + c.correct + \"/\" + c.scored + \")</td><td>\" + (c.p50 == null ? \"n/a\" : c.p50 + \" ms\") + \"</td><td>\" + usd(c.cost_per_call_usd, 4) + \"</td><td>\" + usd(c.monthly_cost_usd) + \"</td></tr>\";\n}).join(\"\");\nconst steps = ledger.steps.map(function (s) {\n  return \"<tr><td>\" + s.label + \"</td><td>\" + s.from + \" to \" + s.to + \"</td><td>\" + (s.usd >= 0 ? \"+\" : \"\") + usd(Math.abs(s.usd)) + \"</td></tr>\";\n}).join(\"\");\nconst routeRows = (ledger.routes || []).map(function (r) {\n  return \"<tr><td>Route \" + r.route + \"</td><td>\" + r.candidate + \"</td><td>\" + usd(r.monthly_cost_usd) + \"</td><td>\" + r.note + \"</td></tr>\";\n}).join(\"\");\nconst html = [\n  \"<!doctype html><html lang=\\\"en\\\"><head><meta charset=\\\"utf-8\\\"><title>Cost-Route - n8n run</title>\",\n  \"<style>body{font:15px/1.55 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;max-width:900px;margin:40px auto;padding:0 24px;color:#14161a;background:#fbfbfc}\",\n  \"h1{font-size:24px}h2{font-size:17px;margin-top:32px}table{width:100%;border-collapse:collapse;font-size:14px}\",\n  \"th,td{text-align:left;padding:8px 10px;border-bottom:1px solid #e3e6ea}th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#6b7280}\",\n  \".big{font:600 30px ui-monospace,Menlo,monospace}.hint{color:#6b7280;font-size:12.5px}.pass{color:#1f6f43;font-weight:600}.fail{color:#a4262c;font-weight:600}</style></head><body>\",\n  \"<h1>Cost-Route: a measured decision from n8n</h1>\",\n  \"<p class=\\\"hint\\\">\" + \"Legal contract review\" + \", \" + Number(20000).toLocaleString() + \" requests a month. Live calls made by this workflow; catalogue rates read at run time.</p>\",\n  \"<h2>Where the estimate went wrong</h2>\",\n  \"<p>The buyer said <b>\" + usd(ledger.stated_estimate_usd) + \"</b>. Their own assumptions cost <b>\" + usd(ledger.own_assumptions_usd) + \"</b>. The calls actually cost <b class=\\\"big\\\">\" + usd(ledger.measured_usd) + \"</b> a month.</p>\",\n  \"<p class=\\\"hint\\\">Arithmetic gap \" + usd(ledger.arithmetic_gap_usd) + \" (an estimate that does not follow from its own inputs); measurement gap \" + usd(ledger.measurement_gap_usd) + \" (the part only measuring could find).</p>\",\n  \"<table><thead><tr><th>Step</th><th>Tokens per call</th><th>Effect</th></tr></thead><tbody>\" + steps + \"</tbody></table>\",\n  \"<h2>Every candidate, at this volume</h2>\",\n  \"<table><thead><tr><th>Candidate</th><th>Route</th><th>Gate</th><th>Correct</th><th>p50</th><th>Per call</th><th>Monthly</th></tr></thead><tbody>\" + rows + \"</tbody></table>\",\n  \"<h2>The three procurement routes</h2>\",\n  \"<table><thead><tr><th>Route</th><th>Candidate</th><th>Monthly</th><th>What price does not say</th></tr></thead><tbody>\" + routeRows + \"</tbody></table>\",\n  \"<h2>Assumptions</h2><ul><li>Synthetic contract and questions; no client documents.</li>\",\n  \"<li>Quality bar \" + Math.round({\"min_correct_share\":0.75,\"notes\":\"11 of 14 correct. Set from the buyer's stated tolerance: a wrong answer on a contract question costs a lawyer more to catch than the model costs to run.\",\"max_hallucinations\":0}.min_correct_share * 100) + \"% correct with at most \" + {\"min_correct_share\":0.75,\"notes\":\"11 of 14 correct. Set from the buyer's stated tolerance: a wrong answer on a contract question costs a lawyer more to catch than the model costs to run.\",\"max_hallucinations\":0}.max_hallucinations + \" fabricated answers; latency ceiling \" + 15000 + \" ms.</li>\",\n  \"<li>Route C, self-hosted, is an estimate from named assumptions and never a quoted price.</li>\",\n  \"<li>Prices move. Re-running this workflow reproduces the method, not these exact figures.</li></ul>\",\n  \"<p class=\\\"hint\\\">Generated by the Cost-Route n8n workflow. Full interactive page: https://therealmaddieli.github.io/cost-route/</p>\",\n  \"</body></html>\",\n].join(\"\");\n// The binary is built here, where the HTML is, rather than by a Convert to File node downstream.\n// That node's toBinary operation produced 14 bytes of garbage from this string, and a second node\n// is a second place for the bytes to stop being the bytes. prepareBinaryData is n8n's documented way\n// for a Code node to emit a file, and the Read/Write File node then writes exactly these bytes.\nconst binary = await this.helpers.prepareBinaryData(Buffer.from(html, \"utf8\"), \"cost-route-summary.html\", \"text/html\");\nreturn [{ json: { html: html, filename: \"cost-route-summary.html\" }, binary: { data: binary } }];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1980,
+        1940,
         300
       ],
-      "id": "cbd850b5-36ba-430f-b298-634dcde198e0",
+      "id": "32744905-447c-4bd5-966a-d84179937d39",
       "name": "Render summary HTML"
-    },
-    {
-      "parameters": {
-        "operation": "toBinary",
-        "sourceProperty": "html",
-        "binaryPropertyName": "data",
-        "options": {
-          "fileName": "cost-route-summary.html"
-        }
-      },
-      "type": "n8n-nodes-base.convertToFile",
-      "typeVersion": 1.1,
-      "position": [
-        2260,
-        300
-      ],
-      "id": "10264855-893d-41d9-bd10-689d40b8d356",
-      "name": "Convert to file"
     },
     {
       "parameters": {
@@ -168,10 +165,10 @@
       "type": "n8n-nodes-base.readWriteFile",
       "typeVersion": 1,
       "position": [
-        2540,
+        2200,
         300
       ],
-      "id": "513f1358-c9b1-45c6-9277-2fcd0e7b1526",
+      "id": "9e05b613-e3b4-44ec-b455-f52a0c0f1d4a",
       "name": "Save summary",
       "onError": "continueRegularOutput"
     },
@@ -188,7 +185,7 @@
         -260,
         -100
       ],
-      "id": "f8cfe1dd-87fe-4693-95d7-5586eca48387",
+      "id": "93255e55-ec8f-4534-84e8-8783e1ed375e",
       "name": "Note: Step 1 - requirements gate, before price"
     },
     {
@@ -204,7 +201,7 @@
         560,
         -100
       ],
-      "id": "60b91c11-16f6-4817-a03f-c3c68be1bf7d",
+      "id": "abfa3ed2-cca3-4359-9823-f4523f50d8f5",
       "name": "Note: Step 2 - measure, don't multiply."
     },
     {
@@ -220,7 +217,7 @@
         1380,
         -100
       ],
-      "id": "f6491b65-6518-4cf2-a3ce-394c0c2017ea",
+      "id": "fcf01e06-c68f-4352-9af4-84becb015fc6",
       "name": "Note: Steps 3 and 4 - price the survivors, the"
     }
   ],
@@ -245,7 +242,7 @@
       "main": [
         [
           {
-            "node": "Plan the run",
+            "node": "Merge catalogues",
             "type": "main",
             "index": 0
           }
@@ -253,6 +250,17 @@
       ]
     },
     "HF router catalogue": {
+      "main": [
+        [
+          {
+            "node": "Merge catalogues",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge catalogues": {
       "main": [
         [
           {
@@ -330,17 +338,6 @@
       ]
     },
     "Render summary HTML": {
-      "main": [
-        [
-          {
-            "node": "Convert to file",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Convert to file": {
       "main": [
         [
           {

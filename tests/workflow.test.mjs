@@ -74,3 +74,37 @@ test("the workflow has a manual trigger and the four documented gate nodes", () 
     assert.ok(byName(name), `node is missing: ${name}`);
   }
 });
+
+test("both catalogues merge before the planning node", () => {
+  // n8n runs a node once per incoming branch. Feeding the planning node straight from both HTTP
+  // nodes made it run twice: once with both catalogues (which built the 42 calls) and once with
+  // only the HF catalogue, which found no OpenRouter models, threw, and marked the whole execution
+  // failed. The Merge is the fix, so this is its guard.
+  const merge = byName("Merge catalogues");
+  assert.ok(merge, "the Merge node is gone");
+  assert.equal(merge.type, "n8n-nodes-base.merge");
+  assert.equal(merge.parameters.numberInputs, 2);
+
+  const targets = (name) => workflow.connections[name].main.flat().map((c) => c.node);
+  assert.deepEqual(targets("OpenRouter catalogue"), ["Merge catalogues"]);
+  assert.deepEqual(targets("HF router catalogue"), ["Merge catalogues"]);
+  assert.deepEqual(targets("Merge catalogues"), ["Plan the run"]);
+
+  const inputIndexes = [
+    ...workflow.connections["OpenRouter catalogue"].main[0].map((c) => c.index),
+    ...workflow.connections["HF router catalogue"].main[0].map((c) => c.index),
+  ].sort();
+  assert.deepEqual(inputIndexes, [0, 1], "the merge inputs are not the two catalogues");
+});
+
+test("the quality gate normalises answers the way core/scorer.mjs does", () => {
+  // This port exists because the first n8n gate scored GPT-4o mini 5/14 where the repo scored
+  // 12/14: contracts spell numbers as "twenty-four (24) months" and no number-then-unit pattern
+  // matches with a ")" between them. If this normalisation is dropped the workflow starts
+  // contradicting the published page about the same answers, which is worse than being slow.
+  const code = byName("Score: the quality gate").parameters.jsCode;
+  assert.ok(code.includes("function normalise"), "the normalisation step is gone");
+  assert.ok(code.includes("u0060"), "the markdown strip is gone");
+  assert.ok(code.includes("(v.length - 1) * p"), "the percentile is not the interpolated one the repo uses");
+  assert.ok(code.includes("needs_review"), "the needs_review outcome is gone");
+});

@@ -181,27 +181,63 @@ for (const item of $input.all()) {
 }
 return out;`;
 
-const CODE_SCORE = `// Rule-based gate: correct share against known answers, p50/p95 latency, and a hallucination flag
-// with the offending answer attached. No LLM judge.
-const rows = $input.all().map(function (i) { return i.json; });
-function hits(text, pats) {
-  for (const p of (pats || [])) {
-    try { if (new RegExp(p, "i").test(text)) return true; } catch (e) { /* a bad pattern is not a match */ }
+const CODE_SCORE = `// Rule-based gate, ported from core/scorer.mjs so the canvas and the repository score the same
+// answers the same way. The first n8n version regex-tested the raw text and scored GPT-4o mini 5/14
+// where the repo scored 12/14: contracts spell numbers as "twenty-four (24) months", and no
+// number-then-unit pattern matches with a ")" in between. Normalising that away first is the whole
+// difference, and without it the workflow contradicted the published page about the same answers.
+function normalise(text) {
+  return String(text == null ? "" : text)
+    .toLowerCase()
+    .replace(/[\\u2010-\\u2015\\u2212]/g, "-")
+    .replace(/[\\u00a0\\u2007\\u202f]/g, " ")
+    .replace(/[\\u0060*_>#]|\\*\\*|__/g, " ")
+    .replace(/\\(\\s*(\\d[\\d,.]*\\s*%?)\\s*\\)/g, "$1")
+    .replace(/\\s+/g, " ")
+    .trim();
+}
+function matchAny(haystack, patterns) {
+  for (const p of (patterns || [])) {
+    try { if (new RegExp(p, "i").test(haystack)) return p; } catch (e) { /* a bad pattern is skipped, not fatal */ }
   }
-  return false;
+  return null;
 }
-function pct(sorted, p) {
-  if (!sorted.length) return null;
-  return Math.round(sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))]);
+function scoreItem(item, answer) {
+  const text = normalise(answer);
+  const kind = item.kind || "fact";
+  // Absent items are scored the other way round: the only thing worth measuring is whether the
+  // model says the document is silent. Checking accept first stops a correct "not specified" being
+  // overturned by a figure the model mentioned from elsewhere.
+  if (kind === "absent") {
+    const accepted = matchAny(text, item.accept);
+    const rejected = matchAny(text, item.reject);
+    if (accepted) return { correct: true, hallucination: false, needs_review: false, hedged: Boolean(rejected) };
+    if (rejected) return { correct: false, hallucination: true, needs_review: false, hedged: false };
+    return { correct: false, hallucination: false, needs_review: true, hedged: false };
+  }
+  const rejected = matchAny(text, item.reject);
+  if (rejected) return { correct: false, hallucination: true, needs_review: false, hedged: false };
+  const accepted = matchAny(text, item.accept);
+  if (accepted) return { correct: true, hallucination: false, needs_review: false, hedged: false };
+  return { correct: false, hallucination: false, needs_review: true, hedged: false };
 }
+function percentile(values, p) {
+  const v = values.filter(function (n) { return typeof n === "number" && isFinite(n); }).sort(function (a, b) { return a - b; });
+  if (!v.length) return null;
+  if (v.length === 1) return v[0];
+  const idx = (v.length - 1) * p;
+  const lo = Math.floor(idx);
+  const hi = Math.ceil(idx);
+  return lo === hi ? v[lo] : v[lo] + (v[hi] - v[lo]) * (idx - lo);
+}
+const rows = $input.all().map(function (i) { return i.json; });
 const groups = {};
 for (const r of rows) {
   if (!groups[r.slug]) groups[r.slug] = { name: r.candidate, slug: r.slug, route: r.route, source: r.source, provider: r.provider, incumbent: r.incumbent, validation: r.validation, validation_notes: r.validation_notes, calls: [] };
   const answered = r.status === 200 && r.answer && r.answer.length > 0;
   groups[r.slug].calls.push({
     id: r.question_id, kind: r.question_kind, answered: answered,
-    correct: answered && hits(r.answer, r.accept) && !hits(r.answer, r.reject),
-    fabricated: answered && !hits(r.answer, r.accept) && hits(r.answer, r.reject),
+    score: answered ? scoreItem(r, r.answer) : null,
     latency_ms: r.latency_ms, usage: r.usage, answer: r.answer, status: r.status, error: r.error,
   });
 }
@@ -209,23 +245,26 @@ const out = [];
 for (const key in groups) {
   const c = groups[key];
   const answered = c.calls.filter(function (x) { return x.answered; });
-  const correct = answered.filter(function (x) { return x.correct; }).length;
-  const fabricated = answered.filter(function (x) { return x.fabricated; }).length;
-  const lat = answered.map(function (x) { return x.latency_ms; }).sort(function (a, b) { return a - b; });
-  const share = answered.length ? correct / answered.length : null;
+  const scored = answered.filter(function (x) { return x.score; });
+  const correct = scored.filter(function (x) { return x.score.correct; }).length;
+  const fabricated = scored.filter(function (x) { return x.score.hallucination; }).length;
+  const needsReview = scored.filter(function (x) { return x.score.needs_review; }).length;
+  const lat = answered.map(function (x) { return x.latency_ms; });
+  const share = scored.length ? correct / scored.length : null;
   const bar = WORKLOAD_QUALITY_BAR;
   const fails = [];
   if (share !== null && share < bar.min_correct_share) fails.push(Math.round(share * 100) + "% correct, below the " + Math.round(bar.min_correct_share * 100) + "% bar");
   if (fabricated > bar.max_hallucinations) fails.push(fabricated + " fabricated answer" + (fabricated === 1 ? "" : "s") + ", above the limit of " + bar.max_hallucinations);
-  const p50 = pct(lat, 0.5);
-  const p95 = pct(lat, 0.95);
-  if (p50 !== null && p50 > WORKLOAD_CEILING) fails.push("p50 " + p50 + "ms is above the " + WORKLOAD_CEILING + "ms ceiling");
-  if (!answered.length) fails.push("no call was served");
-  const sum = function (fn) { return answered.reduce(function (s, x) { return s + fn(x); }, 0); };
-  const n = answered.length || 1;
+  const p50 = percentile(lat, 0.5);
+  const p95 = percentile(lat, 0.95);
+  if (p50 !== null && p50 > WORKLOAD_CEILING) fails.push("p50 " + Math.round(p50) + "ms is above the " + WORKLOAD_CEILING + "ms ceiling");
+  if (!scored.length) fails.push("no call was served");
+  const sum = function (fn) { return scored.reduce(function (s, x) { return s + fn(x); }, 0); };
+  const n = scored.length || 1;
   out.push({ json: Object.assign({}, c, {
-    scored: answered.length, total: c.calls.length, correct: correct, fabricated: fabricated,
-    share: share, p50: p50, p95: p95, passed: fails.length === 0, fail_reasons: fails,
+    scored: scored.length, total: c.calls.length, correct: correct, fabricated: fabricated, needs_review: needsReview,
+    share: share, p50: p50 == null ? null : Math.round(p50), p95: p95 == null ? null : Math.round(p95),
+    passed: fails.length === 0, fail_reasons: fails,
     measured_input_tokens_per_call: Math.round(sum(function (x) { return (x.usage && x.usage.prompt_tokens) || 0; }) / n),
     measured_output_tokens_per_call: Math.round(sum(function (x) { return (x.usage && x.usage.completion_tokens) || 0; }) / n),
     measured_cached_input_tokens_per_call: Math.round(sum(function (x) { return (x.usage && x.usage.prompt_tokens_details && x.usage.prompt_tokens_details.cached_tokens) || 0; }) / n),
@@ -274,8 +313,20 @@ return out;`.replaceAll("WORKLOAD_VOLUME", JSON.stringify(WORKLOAD.monthly_reque
 
 const CODE_LEDGER = `// Buyer's stated estimate, the buyer's own assumptions priced out, and the measurement. The gap
 // between the first two is arithmetic; the gap between the last two is the measurement.
-const cands = $input.all().map(function (i) { return i.json; });
-const incumbent = cands.filter(function (c) { return c.incumbent; })[0] || cands[0];
+//
+// This node reads the object the previous node produced, not the raw items, because the previous
+// node is a summariser: Three routes turns the candidate list into a route table, so the candidates
+// have to travel with it. The first version of that node returned only the rows, and this node then
+// read the wrong shape and died on incumbent.pricing.input_per_m - after all 42 calls had been made
+// and paid for. A summarising node that drops its input breaks everything downstream of it.
+const carried = $input.first().json || {};
+const cands = carried.candidates || [];
+const routes = carried.routes || [];
+const priced = cands.filter(function (c) { return c && c.pricing; });
+if (!priced.length) {
+  return [{ json: { available: false, reason: "no priced candidate reached the ledger", routes: routes } }];
+}
+const incumbent = priced.filter(function (c) { return c.incumbent; })[0] || priced[0];
 const vol = WORKLOAD_VOLUME;
 const be = WORKLOAD_BUYER;
 const toRate = function (perM) { return perM == null ? null : perM / 1e6; };
@@ -290,7 +341,9 @@ const promptStep = (measuredPrompt - be.assumed_input_tokens_per_request) * inRa
 const answerStep = (measuredOut - be.assumed_output_tokens_per_request) * outRate * vol;
 const cacheStep = cacheRate == null ? 0 : -(measuredCached * (inRate - cacheRate)) * vol;
 return [{ json: {
+  available: true,
   incumbent: incumbent.name,
+  routes: routes,
   stated_estimate_usd: be.assumed_cost_per_month_usd,
   own_assumptions_usd: own,
   measured_usd: incumbent.monthly_cost_usd,
@@ -331,11 +384,17 @@ const rows = cands.map(function (c) {
   return { route: c.route, label: c.route === "A" ? "Closed API model" : "Open weights, served by a third party", candidate: c.name, slug: c.slug, monthly_cost_usd: c.monthly_cost_usd, priced: c.priced, note: notes.join(" ") };
 });
 rows.push(selfHost);
-return rows.map(function (r) { return { json: r }; });`;
+// The candidate list travels with the route table, and that is load-bearing rather than tidy: the
+// ledger node reads the candidates from here. Returning only the rows is what broke the first run.
+return [{ json: { routes: rows, candidates: cands } }];`;
 
 const CODE_RENDER = `// A compact decision summary as one HTML string. The full published page is rendered by
 // core/report.mjs in the repository; this is the canvas-native version of the same argument.
 const ledger = $input.first().json;
+if (!ledger || ledger.available === false) {
+  const reason = (ledger && ledger.reason) || "the ledger node produced nothing";
+  return [{ json: { html: "<!doctype html><html lang=\\"en\\"><body><h1>Cost-Route: no ledger</h1><p>" + reason + "</p></body></html>", filename: "cost-route-summary.html" } }];
+}
 const usd = function (n, p) { return n == null || !isFinite(n) ? "n/a" : "$" + Number(n).toFixed(p == null ? 2 : p); };
 const pctTxt = function (s) { return s == null ? "not measured" : Math.round(s * 100) + "%"; };
 const rows = ledger.candidates.map(function (c) {
@@ -343,6 +402,9 @@ const rows = ledger.candidates.map(function (c) {
 }).join("");
 const steps = ledger.steps.map(function (s) {
   return "<tr><td>" + s.label + "</td><td>" + s.from + " to " + s.to + "</td><td>" + (s.usd >= 0 ? "+" : "") + usd(Math.abs(s.usd)) + "</td></tr>";
+}).join("");
+const routeRows = (ledger.routes || []).map(function (r) {
+  return "<tr><td>Route " + r.route + "</td><td>" + r.candidate + "</td><td>" + usd(r.monthly_cost_usd) + "</td><td>" + r.note + "</td></tr>";
 }).join("");
 const html = [
   "<!doctype html><html lang=\\"en\\"><head><meta charset=\\"utf-8\\"><title>Cost-Route - n8n run</title>",
@@ -358,6 +420,8 @@ const html = [
   "<table><thead><tr><th>Step</th><th>Tokens per call</th><th>Effect</th></tr></thead><tbody>" + steps + "</tbody></table>",
   "<h2>Every candidate, at this volume</h2>",
   "<table><thead><tr><th>Candidate</th><th>Route</th><th>Gate</th><th>Correct</th><th>p50</th><th>Per call</th><th>Monthly</th></tr></thead><tbody>" + rows + "</tbody></table>",
+  "<h2>The three procurement routes</h2>",
+  "<table><thead><tr><th>Route</th><th>Candidate</th><th>Monthly</th><th>What price does not say</th></tr></thead><tbody>" + routeRows + "</tbody></table>",
   "<h2>Assumptions</h2><ul><li>Synthetic contract and questions; no client documents.</li>",
   "<li>Quality bar " + Math.round(WORKLOAD_BAR.min_correct_share * 100) + "% correct with at most " + WORKLOAD_BAR.max_hallucinations + " fabricated answers; latency ceiling " + WORKLOAD_CEILING + " ms.</li>",
   "<li>Route C, self-hosted, is an estimate from named assumptions and never a quoted price.</li>",
@@ -365,7 +429,12 @@ const html = [
   "<p class=\\"hint\\">Generated by the Cost-Route n8n workflow. Full interactive page: https://therealmaddieli.github.io/cost-route/</p>",
   "</body></html>",
 ].join("");
-return [{ json: { html: html, filename: "cost-route-summary.html" } }];`
+// The binary is built here, where the HTML is, rather than by a Convert to File node downstream.
+// That node's toBinary operation produced 14 bytes of garbage from this string, and a second node
+// is a second place for the bytes to stop being the bytes. prepareBinaryData is n8n's documented way
+// for a Code node to emit a file, and the Read/Write File node then writes exactly these bytes.
+const binary = await this.helpers.prepareBinaryData(Buffer.from(html, "utf8"), "cost-route-summary.html", "text/html");
+return [{ json: { html: html, filename: "cost-route-summary.html" }, binary: { data: binary } }];`
   .replaceAll("WORKLOAD_NAME", JSON.stringify(WORKLOAD.name))
   .replaceAll("WORKLOAD_VOLUME", JSON.stringify(WORKLOAD.monthly_requests))
   .replaceAll("WORKLOAD_BAR", JSON.stringify(WORKLOAD.quality_bar))
@@ -429,26 +498,25 @@ const nodes = [
   },
   http("OpenRouter catalogue", "https://openrouter.ai/api/v1/models", [20, 160]),
   http("HF router catalogue", "https://router.huggingface.co/v1/models", [20, 440]),
-  code("Plan the run", CODE_PLAN, [300, 300]),
-  code("Call candidates (timed)", CODE_CALL, [580, 300]),
-  code("Score: the quality gate", CODE_SCORE, [860, 300]),
-  code("Cost engine", CODE_COST, [1140, 300]),
-  code("Three routes", CODE_ROUTES, [1420, 300]),
-  code("Estimate vs measured", CODE_LEDGER, [1700, 300]),
-  code("Render summary HTML", CODE_RENDER, [1980, 300]),
   {
-    parameters: {
-      operation: "toBinary",
-      sourceProperty: "html",
-      binaryPropertyName: "data",
-      options: { fileName: "cost-route-summary.html" },
-    },
-    type: "n8n-nodes-base.convertToFile",
-    typeVersion: 1.1,
-    position: [2260, 300],
+    // Without this, the Code node downstream runs ONCE PER INCOMING BRANCH, not once for both: the
+    // first live run built its 42 calls from the OpenRouter catalogue alone and then threw on the
+    // HF branch, which saw no OpenRouter models at all. Merging first makes the two responses one
+    // input, which is what the planning node was written to expect.
+    parameters: { mode: "append", numberInputs: 2, options: {} },
+    type: "n8n-nodes-base.merge",
+    typeVersion: 3.1,
+    position: [170, 300],
     id: id(),
-    name: "Convert to file",
+    name: "Merge catalogues",
   },
+  code("Plan the run", CODE_PLAN, [380, 300]),
+  code("Call candidates (timed)", CODE_CALL, [640, 300]),
+  code("Score: the quality gate", CODE_SCORE, [900, 300]),
+  code("Cost engine", CODE_COST, [1160, 300]),
+  code("Three routes", CODE_ROUTES, [1420, 300]),
+  code("Estimate vs measured", CODE_LEDGER, [1680, 300]),
+  code("Render summary HTML", CODE_RENDER, [1940, 300]),
   {
     parameters: {
       operation: "write",
@@ -458,14 +526,16 @@ const nodes = [
     },
     type: "n8n-nodes-base.readWriteFile",
     typeVersion: 1,
-    position: [2540, 300],
+    position: [2200, 300],
     id: id(),
     name: "Save summary",
-    // n8n restricts the Read/Write File node to its own files directory by default
-    // (blockFileAccessToN8nFiles = true in @n8n/config), so this write is refused unless the
-    // instance sets N8N_BLOCK_FILE_ACCESS_TO_N8N_FILES=false. Refused-to-write is a different
-    // outcome from a failed run: the HTML is already built and downloadable from the two nodes
-    // before this one, so the workflow continues and the README says how to get the file on disk.
+    // n8n confines the Read/Write File node to an allow-list that defaults to ~/.n8n-files
+    // (restrictFileAccessTo in @n8n/config), so this write is refused for any other path unless the
+    // instance sets N8N_RESTRICT_FILE_ACCESS_TO to the output directory or to an empty string.
+    // N8N_BLOCK_FILE_ACCESS_TO_N8N_FILES=false is not enough on its own: it removes the extra block
+    // on n8n's own folder, not the allow-list. Refused-to-write is a different outcome from a failed
+    // run - the HTML is already built and downloadable from the two nodes before this one - so the
+    // workflow continues and the README says how to get the file on disk.
     onError: "continueRegularOutput",
   },
   sticky(
@@ -492,6 +562,7 @@ const order = [
   "Manual Trigger",
   "OpenRouter catalogue",
   "HF router catalogue",
+  "Merge catalogues",
   "Plan the run",
   "Call candidates (timed)",
   "Score: the quality gate",
@@ -499,7 +570,6 @@ const order = [
   "Three routes",
   "Estimate vs measured",
   "Render summary HTML",
-  "Convert to file",
   "Save summary",
 ];
 
@@ -507,16 +577,18 @@ const connections = {
   // One output, fanned out to both catalogue fetches. A second output array would be a second
   // connector the trigger node's type does not have.
   "Manual Trigger": { main: [[{ node: "OpenRouter catalogue", type: "main", index: 0 }, { node: "HF router catalogue", type: "main", index: 0 }]] },
-  "OpenRouter catalogue": { main: [[{ node: "Plan the run", type: "main", index: 0 }]] },
-  "HF router catalogue": { main: [[{ node: "Plan the run", type: "main", index: 0 }]] },
+  // The two catalogues converge before the planning node. Without the Merge, n8n runs the planning
+  // node once per branch, and the branch that saw only the HF catalogue threw.
+  "OpenRouter catalogue": { main: [[{ node: "Merge catalogues", type: "main", index: 0 }]] },
+  "HF router catalogue": { main: [[{ node: "Merge catalogues", type: "main", index: 1 }]] },
+  "Merge catalogues": { main: [[{ node: "Plan the run", type: "main", index: 0 }]] },
   "Plan the run": { main: [[{ node: "Call candidates (timed)", type: "main", index: 0 }]] },
   "Call candidates (timed)": { main: [[{ node: "Score: the quality gate", type: "main", index: 0 }]] },
   "Score: the quality gate": { main: [[{ node: "Cost engine", type: "main", index: 0 }]] },
   "Cost engine": { main: [[{ node: "Three routes", type: "main", index: 0 }]] },
   "Three routes": { main: [[{ node: "Estimate vs measured", type: "main", index: 0 }]] },
   "Estimate vs measured": { main: [[{ node: "Render summary HTML", type: "main", index: 0 }]] },
-  "Render summary HTML": { main: [[{ node: "Convert to file", type: "main", index: 0 }]] },
-  "Convert to file": { main: [[{ node: "Save summary", type: "main", index: 0 }]] },
+  "Render summary HTML": { main: [[{ node: "Save summary", type: "main", index: 0 }]] },
 };
 
 const workflow = {

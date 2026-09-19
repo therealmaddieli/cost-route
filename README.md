@@ -131,10 +131,11 @@ cheap way to smoke the whole pipeline.
 
 `workflow.json` imports into n8n as a twelve-node orchestration of the same decision: a manual
 trigger fans out to two raw HTTP Request nodes that fetch the OpenRouter and Hugging Face
-catalogues, then Code nodes normalise every rate to USD per 1M tokens in one place, validate the
-shortlist against what the catalogues actually publish, time every call, apply the rule-based
-quality gate, price the survivors across the five mechanics, compare the three procurement routes,
-build the estimate-versus-measured ledger, and render a decision summary to HTML.
+catalogues, a Merge node joins them into one input, then Code nodes normalise every rate to USD
+per 1M tokens in one place, validate the shortlist against what the catalogues actually publish,
+time every call, apply the rule-based quality gate, price the survivors across the five mechanics,
+compare the three procurement routes, build the estimate-versus-measured ledger, and render a
+decision summary to HTML and to a file.
 
 **It carries no secrets, and no credential stanzas.** Keys are read from **n8n Variables**
 (`OPENROUTER_API_KEY`, `HF_TOKEN`) at run time, with the process environment as a guarded fallback.
@@ -162,7 +163,10 @@ because a self-hosted instance can afford them and n8n Cloud should not have the
 | Variable | Why |
 |---|---|
 | `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` | `$env` throws `access to env vars denied` by default in n8n 2.x. Only needed for the environment fallback; the Variables path needs no flag. |
-| `N8N_BLOCK_FILE_ACCESS_TO_N8N_FILES=false` | The Read/Write File node is confined to n8n's own files directory by default, so **Save summary** is refused without this. The node is set to continue on error, so the run still succeeds and the HTML is downloadable from **Render summary HTML** / **Convert to file**; only the file on disk is missing. |
+| `N8N_RESTRICT_FILE_ACCESS_TO=""` | The Read/Write File node is confined to an allow-list that defaults to `~/.n8n-files`, so **Save summary** is refused for any path outside it. Set this to the output directory instead if you would rather not lift it. `N8N_BLOCK_FILE_ACCESS_TO_N8N_FILES=false` alone is **not** enough — it only removes the extra block on n8n's own folder, not the allow-list. |
+
+If the write is refused anyway, the run still succeeds: **Save summary** continues on error and the
+HTML is downloadable from **Render summary HTML** / **Convert to file**.
 
 The demo shortlist is three candidates × 14 questions: **42 calls, roughly $0.01–0.02** of
 OpenRouter / Hugging Face spend. n8n plan credits do not pay for those model calls; the providers
