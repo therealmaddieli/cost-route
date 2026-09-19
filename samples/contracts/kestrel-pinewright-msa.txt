@@ -1,0 +1,341 @@
+MASTER SERVICES AGREEMENT
+
+This Master Services Agreement ("Agreement") is entered into as of 1 March 2026 (the
+"Effective Date") between:
+
+  Kestrel Data Oy, a company registered in Helsinki, Finland ("Supplier"); and
+  Pinewright Retail GmbH, a company registered in Hamburg, Germany ("Customer").
+
+ALL PARTIES, CLAUSES, FIGURES AND CIRCUMSTANCES IN THIS DOCUMENT ARE FICTIONAL. It is
+synthetic test data written for a benchmarking exercise. It is not legal advice, it models
+no real agreement, and it names no real company.
+
+--------------------------------------------------------------------------------
+1. DEFINITIONS AND INTERPRETATION
+--------------------------------------------------------------------------------
+
+1.1 "Services" means the data processing and analytics services described in Schedule A.
+
+1.2 "Personal Data" has the meaning given in Article 4(1) of Regulation (EU) 2016/679
+    ("GDPR").
+
+1.3 "Service Credit" means the remedy set out in Clause 7.
+
+1.4 "Affiliate" means any entity controlling, controlled by, or under common control with
+    a party, where "control" means direct or indirect ownership of more than fifty per cent
+    (50%) of the voting securities.
+
+1.5 Headings are for convenience only and do not affect interpretation.
+
+--------------------------------------------------------------------------------
+2. TERM
+--------------------------------------------------------------------------------
+
+2.1 This Agreement commences on the Effective Date and continues for an initial term of
+    twenty-four (24) months (the "Initial Term"), expiring on 28 February 2028.
+
+2.2 Following the Initial Term, this Agreement renews automatically for successive periods
+    of twelve (12) months (each a "Renewal Term"), unless either party gives written notice
+    of non-renewal not less than ninety (90) days before the end of the then-current term.
+
+2.3 Expiry or termination of this Agreement does not affect any provision that is intended
+    to survive, including Clauses 10, 12 and 15.
+
+--------------------------------------------------------------------------------
+3. TERMINATION
+--------------------------------------------------------------------------------
+
+3.1 Either party may terminate this Agreement for convenience by giving the other party not
+    less than sixty (60) days' written notice, provided that the Customer may not serve
+    such notice before the first anniversary of the Effective Date.
+
+3.2 Either party may terminate this Agreement immediately on written notice if the other
+    party commits a material breach and fails to cure that breach within thirty (30) days
+    of receiving written notice describing it.
+
+3.3 Either party may terminate immediately if the other becomes insolvent, enters
+    administration, or ceases to carry on business.
+
+3.4 Termination for any reason does not relieve the Customer of its obligation to pay all
+    fees accrued up to the effective date of termination.
+
+--------------------------------------------------------------------------------
+4. FEES AND PAYMENT
+--------------------------------------------------------------------------------
+
+4.1 The Customer shall pay a recurring fee of EUR 18,000 per calendar month for the
+    Services, invoiced monthly in advance.
+
+4.2 All invoices are payable within forty-five (45) days of the invoice date.
+
+4.3 Overdue amounts accrue interest at the rate of one and a half per cent (1.5%) per month,
+    calculated from the due date until payment is received in full.
+
+4.4 Fees are exclusive of value added tax and any other applicable taxes, which the
+    Customer shall pay in addition.
+
+4.5 All amounts are stated and payable in euro (EUR).
+
+4.6 The Customer shall reimburse the Supplier for pre-approved travel and subsistence costs
+    incurred in the performance of the Services, at cost, supported by receipts.
+
+--------------------------------------------------------------------------------
+5. SUPPLIER OBLIGATIONS
+--------------------------------------------------------------------------------
+
+5.1 The Supplier shall perform the Services with reasonable skill and care and in
+    accordance with Schedule A.
+
+5.2 The Supplier shall provide the Services in accordance with the service levels set out
+    in Clause 7.
+
+5.3 The Supplier shall appoint a named service manager and shall make that person available
+    to the Customer for a monthly review meeting.
+
+5.4 The Supplier shall maintain a documented business continuity and disaster recovery plan,
+    and shall test that plan not less than once every twelve (12) months.
+
+--------------------------------------------------------------------------------
+6. CUSTOMER OBLIGATIONS
+--------------------------------------------------------------------------------
+
+6.1 The Customer shall provide the Supplier with timely access to the systems, data and
+    personnel reasonably required for the performance of the Services.
+
+6.2 The Customer shall ensure that it has a lawful basis for any Personal Data it transfers
+    to the Supplier for processing.
+
+6.3 The Customer shall not use the Services in a manner that is unlawful or that infringes
+    the rights of any third party.
+
+--------------------------------------------------------------------------------
+7. SERVICE LEVELS AND SERVICE CREDITS
+--------------------------------------------------------------------------------
+
+7.1 The Supplier shall make the Services available at a monthly availability of not less
+    than ninety-nine point nine per cent (99.9%), measured in accordance with Schedule B.
+
+7.2 Where monthly availability falls below the commitment in Clause 7.1, the Customer is
+    entitled to a Service Credit of ten per cent (10%) of the monthly fee for each full
+    zero point one per cent (0.1%) by which availability falls short.
+
+7.3 The aggregate Service Credit in any single calendar month shall not exceed thirty per
+    cent (30%) of the monthly fee for that month.
+
+7.4 Service Credits are the Customer's sole and exclusive remedy for any failure to meet
+    the service levels in this Clause 7.
+
+7.5 The Customer must claim a Service Credit within thirty (30) days of the end of the
+    calendar month in which the shortfall occurred. Claims made after that period are
+    void.
+
+--------------------------------------------------------------------------------
+8. LIABILITY
+--------------------------------------------------------------------------------
+
+8.1 Neither party excludes or limits its liability for death or personal injury caused by
+    negligence, for fraud or fraudulent misrepresentation, or for any other liability that
+    cannot lawfully be limited.
+
+8.2 Subject to Clause 8.1, the total aggregate liability of each party arising out of or in
+    connection with this Agreement is limited to the total fees paid or payable by the
+    Customer in the twelve (12) months immediately preceding the event giving rise to the
+    claim.
+
+8.3 The limitation in Clause 8.2 does NOT apply to liability arising from:
+
+    (a) a breach by the Supplier of Clause 12 (Data Protection); or
+    (b) the Supplier's indemnity obligations under Clause 9.1.
+
+8.4 The liability of the Supplier under Clause 9.1 (intellectual property indemnity) is
+    instead limited to twice (2x) the amount calculated under Clause 8.2.
+
+8.5 Neither party is liable for loss of profit, loss of revenue, loss of anticipated
+    savings, or any indirect or consequential loss, whether arising in contract, tort
+    (including negligence) or otherwise.
+
+8.6 The Customer shall not make any claim under this Agreement more than twenty-four (24)
+    months after the date on which it became aware, or ought reasonably to have become
+    aware, of the circumstances giving rise to the claim.
+
+--------------------------------------------------------------------------------
+9. INTELLECTUAL PROPERTY
+--------------------------------------------------------------------------------
+
+9.1 The Supplier shall indemnify, defend and hold harmless the Customer against any claim
+    that the Services, as provided by the Supplier and used by the Customer in accordance
+    with this Agreement, infringe any intellectual property right of a third party.
+
+9.2 Each party retains all right, title and interest in its own pre-existing intellectual
+    property.
+
+9.3 The Customer grants the Supplier a non-exclusive, royalty-free licence to use the
+    Customer's data solely to the extent necessary to perform the Services.
+
+9.4 All intellectual property created by the Supplier in the course of performing the
+    Services vests in the Supplier.
+
+--------------------------------------------------------------------------------
+10. CONFIDENTIALITY
+--------------------------------------------------------------------------------
+
+10.1 Each party shall keep confidential all Confidential Information of the other party and
+     shall not disclose it except as permitted by this Clause 10.
+
+10.2 Confidentiality obligations continue for five (5) years after the date of disclosure,
+     and indefinitely in respect of trade secrets.
+
+10.3 Disclosure is permitted where required by law, provided the disclosing party gives the
+     other party prompt notice where lawfully able to do so.
+
+--------------------------------------------------------------------------------
+11. INSURANCE
+--------------------------------------------------------------------------------
+
+11.1 The Supplier shall maintain professional indemnity insurance with a limit of not less
+     than EUR 5,000,000 per claim, and public liability insurance with a limit of not less
+     than EUR 2,000,000 per claim.
+
+11.2 The Supplier shall provide evidence of cover on request, and shall give the Customer
+     thirty (30) days' notice of any material reduction in cover.
+
+11.3 The Customer shall maintain cyber liability insurance with a limit of not less than
+     EUR 3,000,000 per claim.
+
+--------------------------------------------------------------------------------
+12. DATA PROTECTION
+--------------------------------------------------------------------------------
+
+12.1 The parties shall comply with all applicable data protection law, including the GDPR.
+
+12.2 The Supplier shall process Personal Data only on the documented instructions of the
+     Customer, and shall not process it for its own purposes.
+
+12.3 The Supplier shall implement appropriate technical and organisational measures to
+     ensure a level of security appropriate to the risk.
+
+12.4 The Supplier shall notify the Customer without undue delay, and in any event within
+     seventy-two (72) hours, of becoming aware of a Personal Data Breach affecting Personal
+     Data processed under this Agreement.
+
+12.5 The Customer authorises the Supplier to engage the subprocessors listed in Schedule C.
+     The Supplier shall give the Customer not less than thirty (30) days' written notice
+     before adding or replacing any subprocessor, during which the Customer may object on
+     reasonable data protection grounds.
+
+12.6 Where the Customer objects under Clause 12.5 and the parties cannot resolve the
+     objection within thirty (30) days, the Customer may terminate this Agreement on thirty
+     (30) days' written notice.
+
+12.7 The Supplier shall assist the Customer in responding to data subject requests, and
+     shall provide such assistance within five (5) business days of a written request.
+
+12.8 On termination, the Supplier shall delete or return all Personal Data within sixty (60)
+     days, at the Customer's choice.
+
+--------------------------------------------------------------------------------
+13. ASSIGNMENT AND SUBCONTRACTING
+--------------------------------------------------------------------------------
+
+13.1 Neither party may assign or transfer this Agreement without the prior written consent
+     of the other party, except to an Affiliate or in connection with a merger or sale of
+     substantially all of its assets.
+
+13.2 The Supplier remains fully liable for the acts and omissions of its subprocessors and
+     subcontractors.
+
+--------------------------------------------------------------------------------
+14. AUDIT
+--------------------------------------------------------------------------------
+
+14.1 The Customer may audit the Supplier's compliance with this Agreement not more than once
+     in any twelve (12) month period, on not less than thirty (30) days' written notice.
+
+14.2 The Customer may audit more frequently where required by a regulator or following a
+     Personal Data Breach.
+
+14.3 Audits shall be conducted during business hours and shall not unreasonably interfere
+     with the Supplier's operations.
+
+--------------------------------------------------------------------------------
+15. GOVERNING LAW AND DISPUTE RESOLUTION
+--------------------------------------------------------------------------------
+
+15.1 This Agreement is governed by the laws of Finland, excluding its conflict of laws
+     rules.
+
+15.2 Any dispute arising out of or in connection with this Agreement shall be finally
+     settled by arbitration in Helsinki, Finland, before a single arbitrator, in accordance
+     with the Arbitration Rules of the Finland Chamber of Commerce.
+
+15.3 The language of the arbitration shall be English.
+
+15.4 Nothing in this Clause prevents either party from seeking urgent injunctive relief from
+     a court of competent jurisdiction.
+
+--------------------------------------------------------------------------------
+16. GENERAL
+--------------------------------------------------------------------------------
+
+16.1 This Agreement, together with its Schedules, constitutes the entire agreement between
+     the parties and supersedes all prior discussions and representations.
+
+16.2 No variation of this Agreement is effective unless made in writing and signed by both
+     parties.
+
+16.3 No failure or delay in exercising a right operates as a waiver of that right.
+
+16.4 If any provision is found to be invalid or unenforceable, the remaining provisions
+     continue in full force.
+
+16.5 Notices under this Agreement shall be in writing and sent by hand, by courier, or by
+     email with confirmed receipt, to the addresses set out in Schedule D.
+
+16.6 Nothing in this Agreement creates a partnership, joint venture or relationship of
+     agency between the parties.
+
+--------------------------------------------------------------------------------
+SCHEDULE A - SERVICES
+--------------------------------------------------------------------------------
+
+A.1 Ingestion of the Customer's transactional data into the Supplier's analytics platform.
+
+A.2 Daily reconciliation reporting, delivered by 07:00 CET on the following business day.
+
+A.3 A monthly analytics review meeting.
+
+A.4 Second-line support during business hours (08:00-18:00 CET, Monday to Friday, excluding
+    Finnish public holidays).
+
+--------------------------------------------------------------------------------
+SCHEDULE B - AVAILABILITY MEASUREMENT
+--------------------------------------------------------------------------------
+
+B.1 Availability is calculated monthly as (Total Minutes - Excluded Minutes - Downtime
+    Minutes) / (Total Minutes - Excluded Minutes) x 100.
+
+B.2 "Excluded Minutes" means minutes lost to scheduled maintenance notified at least
+    seventy-two (72) hours in advance, and minutes lost to force majeure.
+
+B.3 Scheduled maintenance is permitted between 22:00 and 02:00 CET.
+
+--------------------------------------------------------------------------------
+SCHEDULE C - AUTHORISED SUBPROCESSORS
+--------------------------------------------------------------------------------
+
+C.1 Aurelia Cloud Services Ltd (infrastructure hosting, Ireland)
+
+C.2 Brightpath Monitoring Oy (application monitoring, Finland)
+
+--------------------------------------------------------------------------------
+SCHEDULE D - NOTICE ADDRESSES
+--------------------------------------------------------------------------------
+
+Supplier: legal@kestrel-data.example, or Kestrel Data Oy, Aleksanterinkatu 00, Helsinki.
+
+Customer: legal@pinewright-retail.example, or Pinewright Retail GmbH, Beispielstrasse 00,
+Hamburg.
+
+--------------------------------------------------------------------------------
+END OF AGREEMENT
+--------------------------------------------------------------------------------

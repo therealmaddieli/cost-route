@@ -1,0 +1,225 @@
+{
+  "$comment": "SYNTHETIC TEST DATA. Every party, figure and clause is invented for this benchmark. No real client documents, no scraped contracts, no real counterparty names. See scope.md, 'Data rules for a public repo'.",
+
+  "$pattern_note": "Every accept/reject pattern tolerates a hyphen or a space between a number and its unit ('90 days', '90-day', '90days'), because models produce all three. An earlier version used \\s* only and would have missed '30-day notice' entirely, letting a fabricated figure through the hallucination trap. Pinned by tests/scorer.test.mjs.",
+
+  "workload_name": "Legal contract review",
+  "workload_kind": "text",
+  "task_description": "Answer one question about a commercial contract, from the contract text alone.",
+
+  "$question_kinds_note": "Display names for the `kind` field on each golden-set item, and nothing else. They change how a column is headed in the report; they do not change what is scored or how. A workload that omits this map still renders, headed with the raw kind.",
+  "question_kinds": {
+    "fact": "Stated in one clause",
+    "multi_hop": "Needs two clauses combined",
+    "absent": "Not answered by the contract"
+  },
+
+  "sample_input_path": "samples/contracts/kestrel-pinewright-msa.txt",
+
+  "answer_instruction": "You are reviewing a commercial contract. Answer the question in ONE short sentence. State the figure or provision directly. Do not explain your reasoning.",
+
+  "quality_bar": {
+    "min_correct_share": 0.75,
+    "notes": "11 of 14 correct. Set from the buyer's stated tolerance: a wrong answer on a contract question costs a lawyer more to catch than the model costs to run.",
+    "max_hallucinations": 0
+  },
+
+  "latency_ceiling_ms": 15000,
+
+  "monthly_requests": 20000,
+
+  "buyer_estimate": {
+    "assumed_input_tokens_per_request": 1500,
+    "assumed_output_tokens_per_request": 50,
+    "assumed_cost_per_month_usd": 18.0,
+    "stated_assumption": "Buyer assumed a 1,500-token contract and a roughly 50-token answer, on a mid-tier model.",
+    "note": "Deliberately approximate. The gap between this and the measurement is the headline of the report."
+  },
+
+  "candidates": [
+    {
+      "name": "Gemma 3 4B (open weights, served)",
+      "slug": "google/gemma-3-4b-it",
+      "route": "B",
+      "source": "huggingface",
+      "provider": "deepinfra",
+      "in_default_run": false,
+      "why_in_shortlist": "The same open-weight model as the entry below, on a different aggregator. Run separately: see docs/day-2-findings.md, where this route returns HTTP 402 on the 10th consecutive call and tells you to buy credits.",
+      "note": "Excluded from the default run so a route quota wall cannot contaminate the quality comparison. Run it explicitly with --candidate google/gemma-3-4b-it --source huggingface."
+    },
+    {
+      "name": "GPT-4o mini (closed)",
+      "slug": "openai/gpt-4o-mini",
+      "route": "A",
+      "source": "openrouter",
+      "incumbent": true,
+      "why_in_shortlist": "The buyer's current default. The incumbent to beat. Marked as the incumbent because the estimate-versus-measured ledger has to explain the gap on the model the buyer is actually running today, and the buyer's own estimate was framed around it. Detected by this flag rather than by matching the note above."
+    },
+    {
+      "name": "GPT-5 mini (closed)",
+      "slug": "openai/gpt-5-mini",
+      "route": "A",
+      "source": "openrouter",
+      "why_in_shortlist": "The step up in quality. Included to price what the accuracy actually costs."
+    },
+    {
+      "name": "Gemma 3 4B (open weights, same model, other aggregator)",
+      "slug": "google/gemma-3-4b-it",
+      "route": "B",
+      "source": "openrouter",
+      "in_default_run": true,
+      "why_in_shortlist": "Cheapest candidate, and open weights rather than a closed API. Included specifically to test whether the cheapest option clears the quality bar.",
+      "same_weights_as": "google/gemma-3-4b-it via huggingface:deepinfra"
+    }
+  ],
+
+  "golden_set": [
+    {
+      "id": "term-length",
+      "kind": "fact",
+      "question": "How long is the Initial Term of the agreement, and on what date does it expire?",
+      "expected": "24 months, expiring 28 February 2028.",
+      "accept": ["24[\\s-]*months?", "twenty[\\s-]*four[\\s-]*months?"],
+      "reject": []
+    },
+    {
+      "id": "renewal-notice",
+      "kind": "fact",
+      "question": "How much written notice must a party give to prevent automatic renewal?",
+      "expected": "Not less than 90 days before the end of the then-current term.",
+      "accept": ["\\b90[\\s-]*days?", "\\bninety[\\s-]*days?"],
+      "reject": []
+    },
+    {
+      "id": "termination-convenience",
+      "kind": "fact",
+      "question": "How much written notice is required to terminate the agreement for convenience?",
+      "expected": "60 days, and not before the first anniversary of the Effective Date.",
+      "accept": ["\\b60[\\s-]*days?", "\\bsixty[\\s-]*days?"],
+      "reject": []
+    },
+    {
+      "id": "cure-period",
+      "kind": "fact",
+      "question": "How long does a party have to cure a material breach after receiving written notice of it?",
+      "expected": "30 days.",
+      "accept": ["\\b30[\\s-]*days?", "\\bthirty[\\s-]*days?"],
+      "reject": []
+    },
+    {
+      "id": "monthly-fee",
+      "kind": "fact",
+      "question": "What is the recurring monthly fee for the Services?",
+      "expected": "EUR 18,000 per calendar month.",
+      "accept": ["18[\\s,.]?000", "eighteen[\\s-]*thousand"],
+      "reject": []
+    },
+    {
+      "id": "payment-terms",
+      "kind": "fact",
+      "question": "Within how many days must invoices be paid?",
+      "expected": "45 days of the invoice date.",
+      "accept": ["\\b45[\\s-]*days?", "\\bforty[\\s-]*five[\\s-]*days?"],
+      "reject": []
+    },
+    {
+      "id": "late-interest",
+      "kind": "fact",
+      "question": "What interest rate applies to overdue amounts?",
+      "expected": "1.5% per month from the due date.",
+      "accept": ["1[.,]5\\s*%", "one and a half per[\\s-]*cent", "one and a half percent"],
+      "reject": []
+    },
+    {
+      "id": "service-credit-cap",
+      "kind": "fact",
+      "question": "What is the maximum aggregate Service Credit in a single calendar month?",
+      "expected": "30% of the monthly fee for that month.",
+      "accept": ["\\b30\\s*%", "thirty per[\\s-]*cent", "thirty percent"],
+      "reject": []
+    },
+    {
+      "id": "credit-claim-window",
+      "kind": "fact",
+      "question": "How long does the Customer have to claim a Service Credit?",
+      "expected": "Within 30 days of the end of the calendar month in which the shortfall occurred.",
+      "accept": ["\\b30[\\s-]*days?", "\\bthirty[\\s-]*days?"],
+      "reject": []
+    },
+    {
+      "id": "general-liability-cap",
+      "kind": "multi_hop",
+      "question": "What is the general cap on each party's total aggregate liability, expressed as an amount in euro?",
+      "expected": "EUR 216,000, being twelve months of fees at EUR 18,000 per month.",
+      "accept": ["216[\\s,.]?000", "two hundred and sixteen thousand"],
+      "reject": [],
+      "why_hard": "Requires combining the fee in Clause 4.1 with the twelve-month formula in Clause 8.2. Neither clause states the euro figure."
+    },
+    {
+      "id": "data-protection-liability",
+      "kind": "multi_hop",
+      "question": "What is the maximum the Customer could recover from the Supplier for a single breach of Clause 12 (Data Protection)?",
+      "expected": "Unlimited. Clause 8.3(a) removes data protection breaches from the Clause 8.2 cap entirely.",
+      "accept": ["unlimited", "uncapped", "no cap", "not limited", "no limit", "without limit", "does not apply", "excluded from"],
+      "reject": [
+        "(limited|capped)\\s*(to|at)\\s*(EUR\\s*)?216",
+        "(limited|capped)\\s*(to|at)\\s*(twelve|12)[\\s-]*months?",
+        "\\b216[\\s,.]?000\\b",
+        "\\b\\d+(?:[.,]\\d+)?\\s*%",
+        "\\b\\d{1,3}(?:,\\d{3})+\\b"
+      ],
+      "reject_note": "The last two patterns exist because a live run answered this question with 'Ten per cent (10%) of the monthly fee', which is the Service Credit clause, and scored only needs_review. Any percentage or thousands-separated amount is a fabricated cap here, because the correct answer is that no cap applies. The golden item's own expected answer contains neither.",
+      "why_hard": "The general cap is stated first and prominently. The carve-out is a separate sub-clause. A model that reads only Clause 8.2 answers with a number and is wrong."
+    },
+    {
+      "id": "ip-indemnity-cap",
+      "kind": "multi_hop",
+      "question": "What is the cap on the Supplier's liability under the intellectual property indemnity?",
+      "expected": "EUR 432,000, being twice the Clause 8.2 amount.",
+      "accept": [
+        "432[\\s,.]?000",
+        "four hundred and thirty[\\s-]*two thousand",
+        "\\btwice\\b",
+        "two times",
+        "\\bdouble\\b",
+        "\\b2\\s*x\\b"
+      ],
+      "reject": [],
+      "why_hard": "Clause 8.4 is a different cap from both 8.2 and 8.3, and it is defined only by reference to another clause."
+    },
+    {
+      "id": "breach-notification",
+      "kind": "fact",
+      "question": "Within what period must the Supplier notify the Customer of a Personal Data Breach?",
+      "expected": "Without undue delay, and in any event within 72 hours.",
+      "accept": ["\\b72[\\s-]*hours?", "seventy[\\s-]*two[\\s-]*hours?", "three[\\s-]*days?"],
+      "reject": []
+    },
+    {
+      "id": "fee-increase-notice",
+      "kind": "absent",
+      "question": "How much notice must the Supplier give before increasing the fees?",
+      "expected": "Not specified in the document. The agreement provides no mechanism for a fee increase.",
+      "accept": [
+        "\\bno\\s+\\w+\\s+(?:notice|period|requirement|provision|mechanism|term|clause|obligation|right)",
+        "\\bno\\s+(?:notice|period|requirement|provision|mechanism)\\b",
+        "(?:not|never)\\s+(?:specified|stated|provided|addressed|mentioned|defined|set out|included|present)",
+        "(?:does|do|did)\\s+not\\s+(?:specify|state|provide|address|mention|define|contain|include|set)",
+        "\\bsilent\\b",
+        "\\bno\\s+such\\b",
+        "\\bcannot\\s+be\\s+determined\\b",
+        "\\bthere\\s+is\\s+no\\b",
+        "\\bnone\\b",
+        "\\babsent\\b"
+      ],
+      "accept_note": "These are deliberately STRUCTURAL, not a list of phrasings. The first version enumerated ways to say 'no' and missed 'No notice period is specified in the Agreement', flagging a correct answer as a fabrication. Match the shape of an absence claim (no <thing>, does not <verb>, not <participle>, silent), never a hand-written list of sentences.",
+      "reject": [
+        "\\b(30|thirty|45|forty[\\s-]*five|60|sixty|90|ninety)[\\s-]*days?",
+        "\\b(1|3|6|12)[\\s-]*months?.{0,15}notice",
+        "notice.{0,15}\\b(1|3|6|12)[\\s-]*months?"
+      ],
+      "why_hard": "The document is full of notice periods, all of them 30, 60 or 90 days. A model pattern-matching on the surrounding clauses will produce one of those numbers. The correct answer is that no such provision exists.",
+      "trap": "Numbers 30, 60 and 90 all appear elsewhere in the contract as real notice periods."
+    }
+  ]
+}

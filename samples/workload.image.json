@@ -1,0 +1,76 @@
+{
+  "$comment": "SYNTHETIC TEST DATA. The prompt below is a graphics primitive invented for this benchmark. No real client assets, no scraped images, no real campaign briefs, and no third-party material of any kind. See scope.md, 'Data rules for a public repo'.",
+
+  "$prompt_note": "The prompt is the single source of truth for the text sent, and it is deliberately the exact string that was actually sent on 2026-09-14. docs/day-1-findings.md:143-144 quotes a longer variant ('...centred on..., flat vector style') that the calling code never sent - scripts/smoke_test.py:370 sent this one. Recording the sent string here, once, is what stops the record and the run drifting apart again. Changing this string invalidates the reconciliation in docs/units.md:35-52.",
+
+  "$kind_note": "workload_kind is 'image', which is the value core/validate.mjs:26 already gates on. scope.md used to say 'visual' in two places; that was corrected on 2026-09-17 rather than teaching the code a second spelling, because two vocabularies for one field is how a gate silently stops firing.",
+
+  "$scoring_note": "There is no golden_set and there is deliberately no machine quality gate. Image quality is judged by a human looking at the output, so there is no correct-share to compute. The only machine gate on this workload is latency_ceiling_ms. Do not read min_correct_share: null as 'the bar is zero' - it means no bar was measured, which is a different statement, and core/scorer.mjs has to treat it that way rather than defaulting it to 0.",
+
+  "workload_name": "Image generation",
+  "workload_kind": "image",
+  "task_description": "Generate one simple graphic from a one-sentence prompt, and cost it at volume.",
+
+  "prompt": "a single red circle on a plain white background",
+  "modalities": ["image", "text"],
+
+  "quality_bar": {
+    "min_correct_share": null,
+    "max_hallucinations": null,
+    "notes": "Not machine-scored. The buyer judges the images by eye, side by side, and the page shows them that way. An earlier draft of this file left the fields out entirely; that would have made core/scorer.mjs:322 default min_correct_share to 0 and pass every candidate through a gate that never ran. Null here, with the scorer taught to skip the quality check and say so, is the honest version."
+  },
+
+  "latency_ceiling_ms": 15000,
+
+  "$latency_note": "The ceiling is the buyer's stated requirement and it has deliberately NOT been moved to make the candidates separate. On 2026-09-14 it failed gpt-5-image-mini at 40.8s a call and passed gemini at 4.3s, which is how this workload was designed: step 1 gating step 2. On 2026-09-17 the same prompt through the same runner returned mini in 585ms and 2,813ms against gemini's 4,738ms and 5,797ms, so BOTH now pass and the model that used to fail is the faster one. The 15,000 figure is unchanged because it is what the buyer said the job needs; raising or lowering it to manufacture a FAIL would be inventing the result. The tab reports two passes and says why the Day-1 numbers did not reproduce. See docs/day-1-findings.md, the CORRECTION section.",
+
+  "monthly_requests": 2000,
+
+  "buyer_estimate": {
+    "assumed_input_tokens_per_request": 30,
+    "assumed_output_tokens_per_request": 1000,
+    "assumed_cost_per_month_usd": 25.0,
+    "stated_assumption": "Buyer assumed a one-sentence prompt of about 30 tokens, and modelled the returned image as roughly 1,000 output tokens priced at the published text completion rate.",
+    "note": "Deliberately the naive reading of the pricing page, and wrong in the way that matters. Every image model publishes BOTH a completion rate and an image_output rate, one line apart, and on this pair they differ by 12x. A buyer who picks the line labelled 'completion' is pricing the image at a twelfth of what it costs. The 1,000-token guess is the second error: the measured image is 1,290 tokens on one model and 4,175 on the other, and nothing visible to the buyer reveals either number. The gap between this block and the measurement is the headline of this tab."
+  },
+
+  "candidates": [
+    {
+      "name": "Gemini 2.5 Flash Image (closed)",
+      "slug": "google/gemini-2.5-flash-image",
+      "route": "A",
+      "source": "openrouter",
+      "incumbent": true,
+      "why_in_shortlist": "Marked as the incumbent because it is the model a buyer arriving at this workload today would land on: it is the cheaper of the pair and it is the one whose prompt tokens look sane, 9 to 14 for a one-sentence prompt rather than the thousands the other charges. It was also the only model clearing the latency ceiling on 2026-09-14. It still clears it on 2026-09-17, but so does gpt-5-image-mini, which is why the ceiling no longer separates them and the incumbent flag is doing the work of naming a stated basis rather than picking a winner. The flag is what gives the estimate-versus-measured ledger a stated basis: scripts/report.mjs falls back to whichever candidate happens to be measured first, and a ledger built on an accident of ordering is not a ledger.",
+      "note": "9 prompt tokens on 2026-09-17, and 14 on 2026-09-14, for the same sentence that costs gpt-5-image-mini 2,167 to 2,476. Quoted as a range because the exact multiple is not stable: 263x on the newer pair, 177x on the older. Both are far past anything a buyer would estimate from reading a prompt."
+    },
+    {
+      "name": "GPT-5 Image Mini (closed)",
+      "slug": "openai/gpt-5-image-mini",
+      "route": "A",
+      "source": "openrouter",
+      "why_in_shortlist": "The expensive half of the pair and the more surprising one. Included because it bills reasoning tokens on an image prompt, which no text-only reading of the pricing page would predict, and because its prompt token count for an identical one-sentence input is in the thousands where the other model's is in the single digits. It also carries the finding that does not reproduce: on 2026-09-14 it looked 9.5x too slow for any interactive workload and failed the ceiling; on 2026-09-17 it was the faster of the two. Kept in the shortlist precisely because that reversal is the argument for measuring twice.",
+      "note": "4,175 image tokens and 544 reasoning tokens a call, charged at $8/M and $2/M. It was expected to fail the latency ceiling at roughly 40 seconds a call against about 4 seconds for the pair model; it returned in 585ms on 2026-09-17 and passed. See $latency_note."
+    }
+  ],
+
+  "$distribution_note": "FLUX is a licence and distribution row, not a generation call (scope.md:156-164). It is not in either price catalogue: OpenRouter's image set is 9 concrete models and all of them are closed first-party, and the Hugging Face router catalogue as fetched carries 140 models with zero image outputs. So there is no route to benchmark and no published rate to quote. What IS readable live is the model card, which is what this block exists to source. The provider list is therefore reported as unread rather than invented - naming providers for this model would be exactly the confident-and-wrong output the project argues against.",
+  "distribution_rows": [
+    {
+      "label": "FLUX.1 schnell",
+      "slug": "black-forest-labs/FLUX.1-schnell",
+      "route": "B",
+      "read_as": "licence_and_gating_only",
+      "licence_expectation": "Apache-2.0. Permissive, so commercially usable with attribution.",
+      "commercial_note": "The permissive half of the pair: a buyer could ship this."
+    },
+    {
+      "label": "FLUX.1 dev",
+      "slug": "black-forest-labs/FLUX.1-dev",
+      "route": "B",
+      "read_as": "licence_and_gating_only",
+      "licence_expectation": "The Hub card reports the licence field as 'other', which is the FLUX.1-dev Non-Commercial License. Rendered as what the field literally says, not as the friendlier paraphrase.",
+      "commercial_note": "The restricted half. 'other' is a con in the route table, not a neutral value, and the page says so."
+    }
+  ]
+}
