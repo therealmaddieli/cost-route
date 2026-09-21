@@ -135,9 +135,14 @@ cheap way to smoke the whole pipeline.
 
 | Entry point | How it is used |
 |---|---|
-| **Form** (`cost-route-form`) | The customer-facing path. Fill in the contract, 10–15 questions with known answers, the criteria and the shortlist, submit, and the form returns the run's summary. |
+| **Form** (`/form/<webhook-id>`) | The customer-facing path. Fill in the contract, 10–15 questions with known answers, the criteria and the shortlist, submit, and the form returns the run's summary. |
 | **Webhook** (`POST /webhook/cost-route`) | The programmatic path. POST the same workload as JSON. |
 | **Manual Trigger** | Runs the bundled synthetic demo, so the workflow still works in one click. |
+
+The form's URL is `/form/<webhook-id>`, not `/<path>`: n8n resolves the path from the node's
+`webhookId` and prefixes form routes with `/form`. The Form Trigger node displays the exact URL in
+the editor. If the fields are mis-typed the request fails with `workload rejected - ...`, which names
+the field at fault rather than returning a stack trace.
 
 All three land on **Normalise workload**, the single node that reads and validates the input and
 names anything missing (`workload rejected - candidates: supply at least one …`). Everything
