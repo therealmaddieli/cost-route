@@ -329,10 +329,10 @@ backed by either a test or a saved run file.
   have a different winner.
 - **The quality gate is evidence, not a guarantee.** 14 questions is enough to separate these
   candidates on this contract and not enough to promise anything about anyone else's.
-- **A free route refused every call on the day.** `google/gemma-3-4b-it` on the Hugging Face router
-  returned HTTP 429 to all 14 questions after the full retry schedule, with the provider reporting
-  the model as rate-limited upstream. The page shows that route as unmeasured rather than pricing it
-  from a guess.
+- **Every text candidate is quoted through OpenRouter.** The route B candidates (DeepSeek V4,
+  Kimi K3) are open weights, but their prices come from OpenRouter rather than the Hugging Face
+  router, so the HF-router pricing path is not exercised on the text tab. The licence and gating
+  facts still come from the Hub model cards, read by Hub id.
 - **Image quality is not scored.** The pictures are on the page so a reader can make the judgement
   no script here makes.
 - **Latency varies between runs, enough to change a verdict.** The page shows the spread per
