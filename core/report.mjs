@@ -204,6 +204,7 @@ function candidateForReport(entry, measuredProfile, extras = {}) {
     provider: entry.provider ?? m.providers_ranked?.[0]?.provider ?? null,
     route: entry.route,
     incumbent: entry.incumbent === true,
+    why_in_shortlist: entry.why_in_shortlist ?? null,
     context_length: m.context_length ?? null,
     licence: entry.licence ?? null,
     // The blended input rate after caching, computed from the measured profile. It is printed
@@ -600,6 +601,14 @@ ol.steps li { margin-bottom: 7px; }
 .route-key { border-top: 1px solid var(--line-2); padding-top: 10px; margin-bottom: 0; }
 .route-key b { font-family: var(--mono); color: var(--ink); }
 .builtwith { margin-top: 40px; }
+/* the brief: what this is, who it is for, what it is not */
+.brief { margin-top: 18px; display: grid; gap: 10px; }
+.brief-row { font-size: 14px; line-height: 1.5; color: var(--ink-2); }
+.brief-k {
+  display: inline-block; min-width: 108px; font-weight: 600; color: var(--ink);
+}
+.cta { font-size: 15px; }
+.hint.why { margin-top: 3px; max-width: 46em; }
 .builtwith .card { margin-top: 12px; }
 .builtwith .canvas {
   display: block; width: 100%; height: auto; margin: 16px 0 4px;
@@ -847,7 +856,9 @@ function renderCandidates(model) {
           c.incumbent ? ` <span class="lock measured">current</span>` : ""
         }<div class="hint">${esc(c.source)}${c.provider ? ` · ${esc(c.provider)}` : ""} · route ${esc(
           c.route
-        )}</div></td>` +
+        )}</div>${
+          c.why_in_shortlist ? `<div class="hint why">${esc(c.why_in_shortlist)}</div>` : ""
+        }</td>` +
         `<td>${verdict}<div>${qualityCell}</div></td>` +
         `<td>${served}</td>` +
         `<td class="r">${latency}</td>` +
@@ -860,7 +871,21 @@ function renderCandidates(model) {
     })
     .join("");
 
+  // The spread is derived from the shortlist rather than asserted, and it is the honest answer to
+  // "why these models": the shortlist spans the price range on purpose, so the reader can see
+  // whether the cheapest candidate clears the same bar as the dearest one.
+  const rates = model.candidates.map((c) => c.pricing?.input_per_m).filter((n) => typeof n === "number");
+  const lo = rates.length ? Math.min(...rates) : null;
+  const hi = rates.length ? Math.max(...rates) : null;
+  const spread = lo && hi && lo > 0 && hi > lo ? Math.round(hi / lo) : null;
+
   return `
+    <p class="sub"><strong>The shortlist is an input, not a finding.</strong> These are the models the
+    buyer named, spanning ${rateUsd(lo)} to ${rateUsd(hi)} per 1M input tokens${
+      spread ? ` — about a ${spread}x spread` : ""
+    } across both procurement routes, out of ${esc(String(model.catalogue?.openrouter_models ?? "the"))}
+    text models in the catalogue. The job is to test whether the cheap one clears the bar, not to rank
+    the market, and the reason each candidate is here is printed on its own row.</p>
     <p class="sub">Quality and latency are locked: they were measured against a golden set at a timestamp and
     cannot be recomputed in a browser. Cost per call and per month respond to the panel at the top of
     the page.</p>
@@ -1548,8 +1573,23 @@ ${renderAssumptions(w, model)}
 function renderBuiltWith(model) {
   return `
   <section class="builtwith">
-    <h2>Where this comes from, and how to run it on your own workload</h2>
+    <h2>Run this on your shortlist</h2>
     <div class="card">
+      <p class="cta">Take the document or prompt, ten to fifteen questions you already know the answers
+      to, and the models you are considering. You get this page back with your numbers in it. Three
+      ways in, in increasing order of control:</p>
+      <ul class="tight">
+        <li><strong>Form</strong> &mdash; fill in the workload and submit it; the run hands back the
+        summary. Best for a one-off question.</li>
+        <li><strong>API</strong> &mdash; <code>POST /webhook/cost-route</code> with the workload as
+        JSON, for anything you want to run repeatedly or wire into a pipeline.</li>
+        <li><strong>Locally</strong> &mdash; clone the repository, add one workload file, and run the
+        pipeline. Full control, and the whole interactive page is yours.</li>
+      </ul>
+      <p class="hint">A text run of five or six models on fourteen questions costs roughly
+      <strong>$0.01&ndash;1.00</strong> depending on the shortlist &mdash; the frontier model dominates the bill,
+      which is the finding, not a caveat. Nothing runs on a visitor's behalf, and no key is needed to read
+      this page.</p>
       <p>This page is the artifact. The pipeline that produces it &mdash; the benchmark runner, the
       estimate-versus-measured ledger, the renderer, the saved run files and the test suite &mdash; is in
       the repository, together with the n8n workflow that orchestrates the calls. Point it at your own
@@ -1656,23 +1696,37 @@ export function renderReportHtml(model) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cost-Route — where your AI cost estimate goes wrong</title>
+<title>Cost-Route — which model should actually run your workload?</title>
 <style>${STYLE}</style>
 </head>
 <body>
 <div class="wrap">
 
   <header class="hero">
-    <h1>Where your AI cost estimate goes wrong</h1>
-    <p class="lede">Cost-Route prices an AI workload across three procurement routes on live catalogue
-    data, gates the candidates on a quality bar before it looks at price, and shows where a buyer's own
-    estimate went wrong. Two worked examples are measured end to end; the panel just below prices your
-    own numbers at those measured rates.</p>
+    <h1>Which of your models should actually run the workload?</h1>
+    <p class="lede">You know your token profile and you have opinions about your stack. Cost-Route
+    measures the shortlist you are already considering against your own questions, prices every
+    candidate across three procurement routes, and shows which price mechanics actually decide the
+    bill. Then it names the gap between what you estimated and what the calls really cost.</p>
     <p class="sub">
       Prices read from OpenRouter and the Hugging Face router at ${esc(model.catalogue_fetched_at ?? "an unrecorded time")}.
       Page generated ${esc(model.generated_at)}.
     </p>
   </header>
+
+  <div class="card brief">
+    <div class="brief-row"><span class="brief-k">What you get</span>
+      A measured quality gate per candidate against your own known answers, measured latency, cost per
+      call and per month at your volume, and the things a price list hides: the cached-input rate, tier
+      thresholds, provider choice, the licence, and how much lock-in each route carries.</div>
+    <div class="brief-row"><span class="brief-k">Who it is for</span>
+      The engineer or procurement lead who knows their token consumption and their stack preferences.
+      This is not a CFO's summary and it does not round the fine print off.</div>
+    <div class="brief-row"><span class="brief-k">What it is not</span>
+      Not a market scan — the shortlist is yours, and the page tests the models you name rather than
+      ranking 446 of them. Not a per-token calculator, and not an estimate generator: every measured
+      figure came from a call that was really made and billed.</div>
+  </div>
 
 ${renderHowTo(workloads, multi)}
 

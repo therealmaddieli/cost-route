@@ -551,12 +551,24 @@ test("a workload with no licence table renders no licence table", () => {
 // the orientation layer: what the page says before it starts arguing
 // ---------------------------------------------------------------------------
 
-test("the page opens with a capability, not a fetch timestamp", () => {
+test("the page opens with a question about the reader's own shortlist, not a fetch timestamp", () => {
   const html = renderReportHtml(reportModel([candidateEntry(incumbentModel())]));
-  assert.ok(html.includes("<h1>Where your AI cost estimate goes wrong</h1>"));
-  // The old heading described the sample rather than the tool, which is most of why the page read as
-  // a report about two workloads instead of something a reader could use on their own numbers.
+  assert.ok(html.includes("<h1>Which of your models should actually run the workload?</h1>"));
+  // Earlier headings described the sample ("What two AI workloads actually cost") or the finding
+  // ("Where your AI cost estimate goes wrong"). Both left a first-time reader unsure what the page
+  // was for; the first line has to answer that for the person reading it.
   assert.equal(html.includes("What two AI workloads actually cost"), false);
+  assert.equal(html.includes("Where your AI cost estimate goes wrong</h1>"), false);
+});
+
+test("the page says who it is for and offers a way in", () => {
+  const html = renderReportHtml(reportModel([candidateEntry(incumbentModel())]));
+  // The audience is an engineer or procurement lead, not a CFO, and that has to be stated rather
+  // than inferred from the density of the tables.
+  assert.ok(html.includes("What you get") && html.includes("Who it is for") && html.includes("What it is not"));
+  // A reader who is convinced needs somewhere to go. Before this, the page ended on a repo link.
+  assert.ok(html.includes("Run this on your shortlist"));
+  assert.ok(html.includes("POST /webhook/cost-route"));
 });
 
 test("the how-to block names the three steps and the route key, once", () => {

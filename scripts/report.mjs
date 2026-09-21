@@ -300,7 +300,12 @@ async function buildWorkload(workloadFile, catalogue, callsPerMonthOverride) {
     // and gating facts are properties of the model and its card, not of the aggregator that happens
     // to be quoting it, and gating the lookup on the source left the open-weight row priced by
     // OpenRouter arguing from a closed-API rulebook with its licence column empty.
-    const hub = route === "B" ? await hubCard(c.slug) : null;
+    //
+    // The Hub id, not the slug: an OpenRouter slug ("deepseek/deepseek-v4-flash") and a Hub repo
+    // ("deepseek-ai/DeepSeek-V4-Flash") are different names for the same weights, and looking up the
+    // slug 404s and leaves the licence column blank. The catalogue publishes the Hub id, so the
+    // workload can carry it and the read is exact.
+    const hub = route === "B" ? await hubCard(c.hugging_face_id ?? c.slug) : null;
 
     // Sum, not per-call, and the conversion lives beside the code that creates the sum so the two
     // cannot drift. See measuredCostPerCall in core/scorer.mjs.

@@ -51,7 +51,7 @@ because the gap between their estimate and the measurement is the punchline.
 
 ## What is on the page
 
-Two workloads, as tabs: **legal contract review** (text, 14 questions across four candidate routes)
+Two workloads, as tabs: **legal contract review** (text, 14 questions across six candidates: GPT-4o mini, GPT-5.6 Sol, Claude Fable 5.1, DeepSeek V4 Flash, DeepSeek V4 Pro and Kimi K3)
 and **image generation** (one prompt, two models, two runs each).
 
 For each workload the page now opens with the orientation it used to lack, and then makes one
@@ -119,8 +119,9 @@ node scripts/shot.mjs out/report.html out/shots 360 400  # responsive screenshot
 node scripts/artifact.mjs                                # the hostable variant of the page
 ```
 
-**What a full run costs:** the committed demo run cost **$0.17** in API spend. Text calls are
-fractions of a cent and the image pair is the bulk of it. `--items 3` on the benchmark runner is a
+**What a full run costs:** the current text leg cost **$0.96** in API spend, and **$0.80 of that
+was Claude Fable alone** — the frontier model dominates the bill, which is the finding rather than
+a caveat. The image pair is separate. `--items 3` on the benchmark runner is a
 cheap way to smoke the whole pipeline.
 
 ---

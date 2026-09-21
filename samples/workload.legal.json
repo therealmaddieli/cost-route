@@ -38,38 +38,50 @@
 
   "candidates": [
     {
-      "name": "Gemma 3 4B (open weights, served)",
-      "slug": "google/gemma-3-4b-it",
-      "route": "B",
-      "source": "huggingface",
-      "provider": "deepinfra",
-      "in_default_run": false,
-      "why_in_shortlist": "The same open-weight model as the entry below, on a different aggregator. Run separately: see docs/day-2-findings.md, where this route returns HTTP 402 on the 10th consecutive call and tells you to buy credits.",
-      "note": "Excluded from the default run so a route quota wall cannot contaminate the quality comparison. Run it explicitly with --candidate google/gemma-3-4b-it --source huggingface."
-    },
-    {
       "name": "GPT-4o mini (closed)",
       "slug": "openai/gpt-4o-mini",
       "route": "A",
       "source": "openrouter",
       "incumbent": true,
-      "why_in_shortlist": "The buyer's current default. The incumbent to beat. Marked as the incumbent because the estimate-versus-measured ledger has to explain the gap on the model the buyer is actually running today, and the buyer's own estimate was framed around it. Detected by this flag rather than by matching the note above."
+      "why_in_shortlist": "The buyer's current default, and the incumbent the ledger has to explain: the gap between the estimate and the measurement is only interesting on the model the buyer is running today. Marked by this flag rather than by matching a name."
     },
     {
-      "name": "GPT-5 mini (closed)",
-      "slug": "openai/gpt-5-mini",
+      "name": "GPT-5.6 Sol (closed, flagship)",
+      "slug": "openai/gpt-5.6-sol",
       "route": "A",
       "source": "openrouter",
-      "why_in_shortlist": "The step up in quality. Included to price what the accuracy actually costs."
+      "why_in_shortlist": "The frontier option, at 13x the incumbent's input price and a 1M-token context. Included to price what the extra quality actually costs. Publishes a tier override, so a long prompt can cross into a different rate than the headline one."
     },
     {
-      "name": "Gemma 3 4B (open weights, same model, other aggregator)",
-      "slug": "google/gemma-3-4b-it",
+      "name": "Claude Fable 5.1 (closed)",
+      "slug": "anthropic/claude-fable-5.1",
+      "route": "A",
+      "source": "openrouter",
+      "why_in_shortlist": "The most expensive input rate in the shortlist, $10/M against the incumbent's $0.15/M, and 40x cheaper on cached input at $0.25/M. The clearest illustration that the list price is not the price, and that whether you get the cached rate is a prompt-structure decision rather than a purchasing one."
+    },
+    {
+      "name": "DeepSeek V4 Flash (open weights, served)",
+      "slug": "deepseek/deepseek-v4-flash",
       "route": "B",
       "source": "openrouter",
-      "in_default_run": true,
-      "why_in_shortlist": "Cheapest candidate, and open weights rather than a closed API. Included specifically to test whether the cheapest option clears the quality bar.",
-      "same_weights_as": "google/gemma-3-4b-it via huggingface:deepinfra"
+      "hugging_face_id": "deepseek-ai/DeepSeek-V4-Flash",
+      "why_in_shortlist": "The cheapest candidate in the shortlist, open weights under MIT, and about 5x cheaper again on cached input. Included specifically to test whether the cheapest option clears the buyer's bar, which is the question the page exists to answer."
+    },
+    {
+      "name": "DeepSeek V4 Pro (open weights, served)",
+      "slug": "deepseek/deepseek-v4-pro",
+      "route": "B",
+      "source": "openrouter",
+      "hugging_face_id": "deepseek-ai/DeepSeek-V4-Pro",
+      "why_in_shortlist": "The same family one tier up, at roughly 11x Flash's input price. Included so the page shows an intra-family spread instead of treating a model family as a single option; a buyer choosing 'DeepSeek' is really choosing a tier."
+    },
+    {
+      "name": "Kimi K3 (open weights, served)",
+      "slug": "moonshotai/kimi-k3",
+      "route": "B",
+      "source": "openrouter",
+      "hugging_face_id": "moonshotai/Kimi-K3",
+      "why_in_shortlist": "A third open-weight lab, priced between DeepSeek Pro and Claude Fable, with a 1M-token context and a bespoke licence rather than a permissive one. Included so the open-weight route is not represented by a single vendor, and so the licence column shows that 'open' is not one term."
     }
   ],
 
