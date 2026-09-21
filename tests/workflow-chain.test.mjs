@@ -64,6 +64,19 @@ const costItem = (over = {}) => ({
     measured_input_tokens_per_call: 3000,
     measured_output_tokens_per_call: 18,
     measured_cached_input_tokens_per_call: 2944,
+    // The workload context the planning node stamps onto every call item, which is how the scoring,
+    // costing and ledger nodes read the caller's criteria instead of constants.
+    workload_name: "Legal contract review",
+    workload_kind: "text",
+    machine_scored: true,
+    quality_bar: { min_correct_share: 0.75, max_hallucinations: 0 },
+    latency_ceiling_ms: 15000,
+    monthly_requests: 20000,
+    buyer_estimate: {
+      assumed_input_tokens_per_request: 1500,
+      assumed_output_tokens_per_request: 50,
+      assumed_cost_per_month_usd: 18,
+    },
     pricing: { input_per_m: 0.15, output_per_m: 0.6, cache_read_per_m: 0.075 },
     validation: {
       input_per_m: 0.15,
@@ -175,5 +188,106 @@ test("the gate scores a parenthetical numeral as correct, the way the repo does"
   // Interpolated percentile, same definition as the repo: one value, so p50 is that value.
   assert.equal(c.p50, 1500);
   assert.equal(c.passed, true, "a single correct answer should clear the bar");
+});
+
+// ---------------------------------------------------------------------------
+// the customer-supplied workload
+// ---------------------------------------------------------------------------
+
+/** A minimal but complete text workload, as a customer would submit it. */
+const CUSTOM_WORKLOAD = {
+  workload_name: "My supplier contracts",
+  workload_kind: "text",
+  contract: "The Initial Term is 24 months.",
+  answer_instruction: "Answer in one short sentence.",
+  golden_set: [{ id: "q1", kind: "fact", question: "How long is the term?", expected: "24 months", accept: ["24[\\s-]*months?"], reject: [] }],
+  candidates: [{ slug: "openai/gpt-4o-mini", source: "openrouter" }],
+  quality_bar: { min_correct_share: 0.9, max_hallucinations: 0 },
+  latency_ceiling_ms: 5000,
+  monthly_requests: 123,
+  buyer_estimate: { assumed_input_tokens_per_request: 100, assumed_output_tokens_per_request: 10, assumed_cost_per_month_usd: 7 },
+};
+
+test("the normaliser reads a form submission and fills the defaults", async () => {
+  // The form sends flat fields, and the two JSON fields arrive as strings.
+  const out = await runNode("Normalise workload", [
+    {
+      json: {
+        workload_name: "My supplier contracts",
+        workload_kind: "text",
+        contract: "The Initial Term is 24 months.",
+        golden_set: JSON.stringify(CUSTOM_WORKLOAD.golden_set),
+        candidates: JSON.stringify(CUSTOM_WORKLOAD.candidates),
+        min_correct_share: 0.9,
+        max_hallucinations: 0,
+        latency_ceiling_ms: 5000,
+        monthly_requests: 123,
+        assumed_input_tokens_per_request: 100,
+        assumed_output_tokens_per_request: 10,
+        assumed_cost_per_month_usd: 7,
+      },
+    },
+  ]);
+  const w = out[0].json.workload;
+
+  assert.equal(w.workload_name, "My supplier contracts");
+  assert.equal(w.golden_set.length, 1);
+  assert.equal(w.quality_bar.min_correct_share, 0.9);
+  assert.equal(w.latency_ceiling_ms, 5000);
+  assert.equal(w.monthly_requests, 123);
+  assert.equal(w.buyer_estimate.assumed_cost_per_month_usd, 7);
+  // Defaults the customer should not have to think about.
+  assert.equal(w.candidates[0].route, "A", "route should default from the source");
+  assert.equal(w.candidates[0].name, "openai/gpt-4o-mini", "name should default to the slug");
+  assert.equal(w.candidates[0].incumbent, false);
+});
+
+test("the normaliser reads a webhook body, including nested criteria", async () => {
+  const out = await runNode("Normalise workload", [
+    { json: { body: { workload_name: "A poster", workload_kind: "image", prompt: "a red circle", candidates: [{ slug: "google/gemini-2.5-flash-image", source: "openrouter" }] } } },
+  ]);
+  const w = out[0].json.workload;
+  assert.equal(w.workload_kind, "image");
+  assert.equal(w.prompt, "a red circle");
+  // Defaults for everything the caller left out.
+  assert.equal(w.quality_bar.min_correct_share, 0.75);
+  assert.equal(w.latency_ceiling_ms, 15000);
+  assert.equal(w.monthly_requests, 1000);
+});
+
+test("the normaliser names what is missing instead of throwing a stack trace", async () => {
+  await assert.rejects(
+    () => runNode("Normalise workload", [{ json: { workload_name: "Empty", workload_kind: "text", candidates: "[]", golden_set: "[]" } }]),
+    /workload rejected/
+  );
+});
+
+test("Plan builds one call per candidate per question from the supplied workload", async () => {
+  const openrouter = {
+    json: {
+      data: [
+        { id: "openai/gpt-4o-mini", context_length: 128000, architecture: { output_modalities: ["text"] }, pricing: { prompt: "0.00000015", completion: "0.0000006", input_cache_read: "0.000000075" } },
+      ],
+    },
+  };
+  const hf = { json: { data: [{ id: "google/gemma-3-4b-it", providers: [{ provider: "deepinfra", status: "live", context_length: 8192, pricing: { input: 0.05, output: 0.1 } }] }] } };
+
+  const out = await runNode("Plan the run", [openrouter, hf, { json: { workload: CUSTOM_WORKLOAD } }]);
+
+  assert.equal(out.length, 1, "one candidate times one question should be one call");
+  const call = out[0].json;
+  assert.equal(call.slug, "openai/gpt-4o-mini");
+  assert.equal(call.question_id, "q1");
+  // The caller's criteria travel with the call instead of being read from a constant.
+  assert.equal(call.quality_bar.min_correct_share, 0.9);
+  assert.equal(call.latency_ceiling_ms, 5000);
+  assert.equal(call.monthly_requests, 123);
+  assert.equal(call.workload_name, "My supplier contracts");
+  assert.match(call.body.messages[1].content, /The Initial Term is 24 months/);
+  assert.match(call.body.messages[1].content, /How long is the term\?/);
+});
+
+test("Plan refuses to invent a workload when none reached it", async () => {
+  await assert.rejects(() => runNode("Plan the run", [{ json: { data: [] } }]), /no workload reached the planning node/);
 });
 

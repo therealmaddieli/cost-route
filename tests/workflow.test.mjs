@@ -75,26 +75,54 @@ test("the workflow has a manual trigger and the four documented gate nodes", () 
   }
 });
 
-test("both catalogues merge before the planning node", () => {
-  // n8n runs a node once per incoming branch. Feeding the planning node straight from both HTTP
-  // nodes made it run twice: once with both catalogues (which built the 42 calls) and once with
-  // only the HF catalogue, which found no OpenRouter models, threw, and marked the whole execution
-  // failed. The Merge is the fix, so this is its guard.
+test("the workload is supplied, not baked in: three entry points reach one normaliser", () => {
+  // The whole point of the refactor. Before it, the contract, golden set, criteria and shortlist
+  // were string literals inside "Plan the run", so changing them meant editing JavaScript.
+  const targets = (name) => workflow.connections[name].main.flat().map((c) => c.node);
+  for (const entry of ["Form: your workload", "Webhook: POST a workload", "Sample workload (demo)"]) {
+    assert.deepEqual(targets(entry), ["Normalise workload"], `${entry} does not reach the normaliser`);
+  }
+  assert.ok(byName("Normalise workload"), "the normaliser is gone");
+  assert.deepEqual(targets("Manual Trigger"), ["Sample workload (demo)"]);
+});
+
+test("no pipeline node carries a hard-coded workload", () => {
+  // The sample node is allowed to embed one; nothing else may. If a future edit reintroduces a
+  // literal, the workflow stops being usable on a customer's own workload without a code change.
+  for (const node of workflow.nodes) {
+    if (node.type !== "n8n-nodes-base.code") continue;
+    if (node.name === "Sample workload (demo)") continue;
+    assert.equal(
+      /const WORKLOAD\s*=|WORKLOAD_[A-Z_]+/.test(node.parameters.jsCode),
+      false,
+      `${node.name} still reads a hard-coded workload`
+    );
+  }
+});
+
+test("both catalogues and the workload merge before the planning node", () => {
+  // n8n runs a node once per incoming branch. Feeding the planning node straight from the HTTP
+  // nodes made it run twice: once with both catalogues (which built the calls) and once with only
+  // the HF catalogue, which found no OpenRouter models, threw, and marked the run failed. The Merge
+  // is the fix, and now it carries the workload as its third input too.
   const merge = byName("Merge catalogues");
   assert.ok(merge, "the Merge node is gone");
   assert.equal(merge.type, "n8n-nodes-base.merge");
-  assert.equal(merge.parameters.numberInputs, 2);
+  assert.equal(merge.parameters.numberInputs, 3);
 
-  const targets = (name) => workflow.connections[name].main.flat().map((c) => c.node);
-  assert.deepEqual(targets("OpenRouter catalogue"), ["Merge catalogues"]);
-  assert.deepEqual(targets("HF router catalogue"), ["Merge catalogues"]);
-  assert.deepEqual(targets("Merge catalogues"), ["Plan the run"]);
+  const targets = (name) => workflow.connections[name].main.flat();
+  assert.deepEqual(targets("OpenRouter catalogue").map((c) => [c.node, c.index]), [["Merge catalogues", 0]]);
+  assert.deepEqual(targets("HF router catalogue").map((c) => [c.node, c.index]), [["Merge catalogues", 1]]);
+  assert.deepEqual(targets("Merge catalogues").map((c) => c.node), ["Plan the run"]);
 
-  const inputIndexes = [
-    ...workflow.connections["OpenRouter catalogue"].main[0].map((c) => c.index),
-    ...workflow.connections["HF router catalogue"].main[0].map((c) => c.index),
-  ].sort();
-  assert.deepEqual(inputIndexes, [0, 1], "the merge inputs are not the two catalogues");
+  // The workload reaches the merge directly, not through the HTTP nodes, which replace their input
+  // with the response and would drop it.
+  const fromNormaliser = targets("Normalise workload").map((c) => [c.node, c.index]);
+  assert.deepEqual(fromNormaliser, [
+    ["OpenRouter catalogue", 0],
+    ["HF router catalogue", 0],
+    ["Merge catalogues", 2],
+  ]);
 });
 
 test("the quality gate normalises answers the way core/scorer.mjs does", () => {

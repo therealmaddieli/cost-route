@@ -129,13 +129,58 @@ cheap way to smoke the whole pipeline.
 
 ![The Cost-Route n8n workflow canvas](docs/n8n-canvas.png)
 
-`workflow.json` imports into n8n as a twelve-node orchestration of the same decision: a manual
-trigger fans out to two raw HTTP Request nodes that fetch the OpenRouter and Hugging Face
-catalogues, a Merge node joins them into one input, then Code nodes normalise every rate to USD
-per 1M tokens in one place, validate the shortlist against what the catalogues actually publish,
-time every call, apply the rule-based quality gate, price the survivors across the five mechanics,
+`workflow.json` imports into n8n as a **sixteen-node** orchestration of the same decision, with
+**three ways to supply the workload** — and none of them a hard-coded shortlist:
+
+| Entry point | How it is used |
+|---|---|
+| **Form** (`cost-route-form`) | The customer-facing path. Fill in the contract, 10–15 questions with known answers, the criteria and the shortlist, submit, and the form returns the run's summary. |
+| **Webhook** (`POST /webhook/cost-route`) | The programmatic path. POST the same workload as JSON. |
+| **Manual Trigger** | Runs the bundled synthetic demo, so the workflow still works in one click. |
+
+All three land on **Normalise workload**, the single node that reads and validates the input and
+names anything missing (`workload rejected - candidates: supply at least one …`). Everything
+downstream reads the workload from the data, so changing the contract, the questions, the criteria
+or the models never means editing a Code node.
+
+From there: two raw HTTP Request nodes fetch the OpenRouter and Hugging Face catalogues, a Merge
+node joins them and the workload into one input, then Code nodes normalise every rate to USD per
+1M tokens in one place, validate the shortlist against what the catalogues actually publish, time
+every call, apply the rule-based quality gate, price the survivors across the five mechanics,
 compare the three procurement routes, build the estimate-versus-measured ledger, and render a
 decision summary to HTML and to a file.
+
+**Supplying a workload over the webhook.** The body is the workload itself:
+
+```json
+{
+  "workload_name": "My supplier contracts",
+  "workload_kind": "text",
+  "answer_instruction": "Answer in ONE short sentence.",
+  "contract": "<the document to review>",
+  "golden_set": [
+    { "id": "q1", "kind": "fact", "question": "How long is the initial term?",
+      "expected": "24 months", "accept": ["24[\\s-]*months?"], "reject": [] }
+  ],
+  "candidates": [
+    { "name": "GPT-4o mini", "slug": "openai/gpt-4o-mini", "source": "openrouter", "route": "A" }
+  ],
+  "quality_bar": { "min_correct_share": 0.75, "max_hallucinations": 0 },
+  "latency_ceiling_ms": 15000,
+  "monthly_requests": 20000,
+  "buyer_estimate": { "assumed_input_tokens_per_request": 1500, "assumed_output_tokens_per_request": 50, "assumed_cost_per_month_usd": 18 }
+}
+```
+
+```bash
+curl -X POST http://localhost:5678/webhook/cost-route \
+  -H 'Content-Type: application/json' --data-binary @my-workload.json
+```
+
+Defaults cover anything left out (`route` from the source, `name` from the slug, 75% and 0
+fabrications, a 15,000 ms ceiling, 1,000 requests a month). An image workload swaps `contract` and
+`golden_set` for a single `prompt`, and is reported as not machine-scored — only the latency
+ceiling gates it.
 
 **It carries no secrets, and no credential stanzas.** Keys are read from **n8n Variables**
 (`OPENROUTER_API_KEY`, `HF_TOKEN`) at run time, with the process environment as a guarded fallback.
