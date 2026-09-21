@@ -1,0 +1,30 @@
+{
+  "$comment": "A ready-to-POST example workload for the n8n workflow. Synthetic: the agreement, the questions and the buyer's estimate are all invented. POST it with: curl -X POST http://localhost:5678/webhook/cost-route -H 'Content-Type: application/json' --data-binary @samples/workload.webhook.json",
+
+  "workload_name": "Synthetic services agreement review",
+  "workload_kind": "text",
+  "task_description": "Answer one question about a services agreement, from the contract text alone.",
+  "answer_instruction": "You are reviewing a commercial agreement. Answer the question in ONE short sentence. State the figure or provision directly. Do not explain your reasoning.",
+
+  "contract": "SERVICES AGREEMENT (synthetic, invented for this example). 1. Term. The Initial Term is twelve (12) months, expiring 31 March 2029. 2. Fees. The monthly fee is EUR 4,500, payable within 30 days of the date of invoice. 3. Termination. Either party may terminate this agreement for convenience on 60 days' written notice. 4. Liability. Each party's aggregate liability is capped at the fees paid in the six months preceding the claim.",
+
+  "golden_set": [
+    { "id": "term-length", "kind": "fact", "question": "How long is the Initial Term?", "expected": "12 months", "accept": ["12[\\s-]*months?", "twelve[\\s-]*months?"], "reject": [] },
+    { "id": "monthly-fee", "kind": "fact", "question": "What is the monthly fee?", "expected": "EUR 4,500", "accept": ["4[,.]?500"], "reject": [] },
+    { "id": "governing-law", "kind": "absent", "question": "What is the governing law of the agreement?", "expected": "Not specified in the agreement.", "accept": ["not (specified|stated|mentioned)", "does not (specify|state)", "no governing law", "silent on"], "reject": ["german law", "english law", "laws of england", "laws of germany"] }
+  ],
+
+  "candidates": [
+    { "name": "GPT-4o mini", "slug": "openai/gpt-4o-mini", "source": "openrouter", "route": "A", "incumbent": true },
+    { "name": "GPT-5 Mini", "slug": "openai/gpt-5-mini", "source": "openrouter", "route": "A" }
+  ],
+
+  "quality_bar": { "min_correct_share": 0.66, "max_hallucinations": 0 },
+  "latency_ceiling_ms": 15000,
+  "monthly_requests": 5000,
+  "buyer_estimate": {
+    "assumed_input_tokens_per_request": 800,
+    "assumed_output_tokens_per_request": 40,
+    "assumed_cost_per_month_usd": 25
+  }
+}

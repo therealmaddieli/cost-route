@@ -172,10 +172,16 @@ decision summary to HTML and to a file.
 }
 ```
 
+`samples/workload.webhook.json` is a ready-to-post example. Keep the command on one line — a
+backslash continuation with a trailing space silently ends the line, and curl then posts an empty
+body:
+
 ```bash
-curl -X POST http://localhost:5678/webhook/cost-route \
-  -H 'Content-Type: application/json' --data-binary @my-workload.json
+curl -X POST http://localhost:5678/webhook/cost-route -H 'Content-Type: application/json' --data-binary @samples/workload.webhook.json
 ```
+
+The webhook acknowledges with `{"message":"Workflow was started"}`; the run takes as long as the
+model calls do, and the result is the `cost-route-summary.html` the last node writes.
 
 Defaults cover anything left out (`route` from the source, `name` from the slug, 75% and 0
 fabrications, a 15,000 ms ceiling, 1,000 requests a month). An image workload swaps `contract` and
