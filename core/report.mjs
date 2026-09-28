@@ -299,6 +299,7 @@ function buildOneWorkload(entry, catalogueMeta) {
     ledger = null,
     routes = [],
     benchmarkMeta = {},
+    batchMeta = {},
   } = entry;
 
   const volume = workload.monthly_requests ?? null;
@@ -314,6 +315,9 @@ function buildOneWorkload(entry, catalogueMeta) {
       images: c.images ?? null,
       image_summary: c.image_summary ?? null,
       gate: c.gate ?? null,
+      // The async rate card and, where one ran, the async bill. Null on a model the catalogue does
+      // not sell asynchronously, which this page renders as an absent route rather than as a zero.
+      batch: c.batch ?? null,
       // No `measured_runs` here. It counted calls that returned usage, while the Served column counts
       // calls that returned an answer, and two definitions of "served" one field apart is how the
       // scored/total conflation started. The page renders `quality.scored` over `quality.total`, and
@@ -363,11 +367,24 @@ function buildOneWorkload(entry, catalogueMeta) {
       path: benchmarkMeta.path ?? null,
       items: benchmarkMeta.items ?? null,
     },
+    // This workload's asynchronous leg: what the workload file declared, what the collected run
+    // actually measured, and which candidates the leg refused. The catalogue-wide discount
+    // distribution is not here - it is a property of the catalogue, not of this tab, so it travels
+    // once on `catalogue.batch` and every tab reads the same numbers.
+    batch: {
+      declared: batchMeta.declared === true,
+      completion_window: batchMeta.completion_window ?? null,
+      run_at: batchMeta.run_at ?? null,
+      path: batchMeta.path ?? null,
+      skipped: batchMeta.skipped ?? [],
+      measured_candidates: batchMeta.measured_candidates ?? 0,
+    },
     catalogue: {
       openrouter_models: catalogueMeta.openrouter_models ?? null,
       huggingface_models: catalogueMeta.huggingface_models ?? null,
       hf_provider_entries: catalogueMeta.hf_provider_entries ?? null,
       hf_unpriced: catalogueMeta.hf_unpriced ?? null,
+      batch: catalogueMeta.batch ?? null,
     },
   };
 }
@@ -1220,6 +1237,233 @@ function renderImageCandidates(model) {
   `;
 }
 
+/**
+ * The asynchronous route: what the batch card PUBLISHES, and what a batch actually BILLED.
+ *
+ * This section exists because the two are not the same number and the difference is the product
+ * decision. A reader who takes the catalogue's 50% as a rule will price their async workload wrong
+ * on the models where the card is not 50%, and wrong in the other direction on the two where going
+ * async costs more than staying synchronous.
+ *
+ * Nothing here is interactive, and that is deliberate: the ratio is a property of two published
+ * prices, and the bill is a property of a batch that ran. Neither is the reader's to move, so
+ * neither gets an input. The reader's own levers are on the pricing panel above.
+ */
+function renderBatch(w, model) {
+  const batch = w.batch ?? null;
+  const rows = w.candidates.filter((c) => c.batch);
+
+  // No batch card on any candidate means there is nothing to compare on this tab. Returning "" is
+  // right here and is not the same as hiding a finding: the catalogue-wide distribution is rendered
+  // from the same section, so an empty candidate table would still have something under it.
+  if (!rows.length && !model.catalogue?.batch) return "";
+
+  const max_tokens = (v) => (v == null ? "n/a" : rateUsd(v));
+
+  const candidateRows = rows
+    .map((c) => {
+      const b = c.batch;
+      const measuredRatio = b.measured_ratio ?? null;
+
+      const ratioCell =
+        b.prompt_ratio == null
+          ? `<span class="hint">no published rate</span>`
+          : `<span class="num">x${b.prompt_ratio.toFixed(4)}</span>` +
+            (b.cheaper === false
+              ? ` <span class="pill fail">costs more</span>`
+              : `<div class="hint">published</div>`);
+
+      return (
+        `<tr>` +
+        `<td><strong>${esc(c.name)}</strong>` +
+        `<div class="hint">${esc(b.batch_slug)}</div></td>` +
+        `<td class="r num">${max_tokens(c.pricing.input_per_m)} – ${max_tokens(c.pricing.output_per_m)}</td>` +
+        `<td class="r num">${max_tokens(b.batch_input_per_m)} – ${max_tokens(b.batch_output_per_m)}</td>` +
+        `<td class="r">${ratioCell}</td>` +
+        `<td class="r num">${b.sync_bill_usd == null ? "n/a" : usd(b.sync_bill_usd, 6)}</td>` +
+        `<td class="r num">${
+          b.measured_bill_usd == null
+            ? "n/a"
+            : `${usd(b.measured_bill_usd, 6)}<div class="hint">${b.measured_calls ?? "?"} of ${
+                w.benchmark?.items ?? "?"
+              } calls billed</div>`
+        }</td>` +
+        `<td class="r">${
+          measuredRatio == null
+            ? `<span class="hint">not measured</span>`
+            : `<span class="num">x${measuredRatio.toFixed(4)}</span><div class="hint">measured</div>`
+        }</td>` +
+        `<td class="r num">${b.submit_to_terminal_ms == null ? "—" : `${(b.submit_to_terminal_ms / 3600000).toFixed(2)} h`}</td>` +
+        `</tr>`
+      );
+    })
+    .join("");
+
+  // The allocated per-call figures, in their own table, because they are the one number here that
+  // nobody measured. A batch result carries `usage` with no `cost` field, so there is no per-call
+  // price to report and dividing the batch total is arithmetic rather than observation. It is
+  // useful for pricing a monthly volume and it must not sit in the same column as a measured bill.
+  const allocationRows = rows
+    .filter((c) => c.batch.allocated_cost_per_call != null)
+    .map((c) => {
+      const b = c.batch;
+      return (
+        `<tr>` +
+        `<td><strong>${esc(c.name)}</strong></td>` +
+        `<td class="r num">${usd(b.measured_bill_usd, 6)}</td>` +
+        `<td class="r num">${b.measured_calls ?? "?"}</td>` +
+        `<td class="r num">${usd(b.allocated_cost_per_call, 6)}</td>` +
+        `<td class="r num">${b.measured_monthly_usd == null ? "n/a" : usd(b.measured_monthly_usd)}</td>` +
+        `<td class="hint">${esc(b.cost_source ?? "")}</td>` +
+        `</tr>`
+      );
+    })
+    .join("");
+
+  // The catalogue-wide distribution. Counted against the claim OpenRouter's own announcement makes,
+  // by the same function the batch scan uses, so the page and the console cannot disagree.
+  const dist = model.catalogue?.batch ?? null;
+  const outliers = (dist?.rows ?? []).filter((r) => r.prompt_ratio !== dist.typical);
+
+  const distributionTable = dist
+    ? `
+    <h3 style="margin-top:28px">Across the whole catalogue, the discount is a typical case</h3>
+    <p class="sub">OpenRouter's announcement says batch requests "generally charge 50% (and sometimes
+    less) of their normal per-token price", and that is accurate as a description of the usual case.
+    It is not a rule, and a buyer pricing an async workload against it will be wrong on
+    ${outliers.length} of the ${dist.rated} cards that carry a rate on both sides.</p>
+    <div class="tablewrap">
+    <table>
+      <thead><tr><th>Batch card against its standard card</th><th class="r">Cards</th><th class="r">Share</th></tr></thead>
+      <tbody>
+        <tr><td>Exactly ${dist.typical}x — the announced case</td><td class="r num">${dist.at_typical}</td><td class="r num">${pct(dist.at_typical, dist.rated)}</td></tr>
+        <tr><td>Cheaper than ${dist.typical}x</td><td class="r num">${dist.cheaper_than_typical}</td><td class="r num">${pct(dist.cheaper_than_typical, dist.rated)}</td></tr>
+        <tr><td>Dearer than ${dist.typical}x, still a discount</td><td class="r num">${dist.dearer_than_typical - dist.costs_more_than_sync}</td><td class="r num">${pct(dist.dearer_than_typical - dist.costs_more_than_sync, dist.rated)}</td></tr>
+        <tr><td><strong>More than the standard card</strong> — going async costs more</td><td class="r num"><strong>${dist.costs_more_than_sync}</strong></td><td class="r num">${pct(dist.costs_more_than_sync, dist.rated)}</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="tablewrap" style="margin-top:16px">
+    <table>
+      <thead><tr><th>The ${outliers.length} that are not ${dist.typical}x</th><th class="r">Prompt</th><th class="r">Completion</th><th>What it means</th></tr></thead>
+      <tbody>${outliers
+        .map(
+          (r) =>
+            `<tr><td><strong>${esc(r.slug)}</strong>${
+              r.tiered ? `<div class="hint">tiered rates above a prompt threshold</div>` : ""
+            }</td>` +
+            `<td class="r num">x${r.prompt_ratio.toFixed(4)}</td>` +
+            `<td class="r num">${r.completion_ratio == null ? "n/a" : `x${r.completion_ratio.toFixed(4)}`}</td>` +
+            `<td>${
+              r.prompt_ratio > 1
+                ? `<span style="color:var(--bad)">Batch costs more than the standard card on this model.</span>`
+                : r.prompt_ratio < dist.typical
+                  ? `A deeper discount than the announcement describes.`
+                  : `A shallower discount than the announcement describes.`
+            }</td></tr>`
+        )
+        .join("")}</tbody>
+    </table>
+    </div>
+    <p class="hint" style="margin-top:12px">Read from the catalogue at
+    ${esc(model.catalogue_fetched_at ?? "an unrecorded time")}, at no cost: every
+    <code>:batch</code> entry is a full model entry with its own pricing, so the comparison needs no
+    submission. It is a price list, not a bill — the two columns above are labelled accordingly.</p>
+    `
+    : "";
+
+  const skipped = (batch?.skipped ?? []).length
+    ? `<h3 style="margin-top:28px">Candidates the asynchronous leg could not run</h3>
+    <div class="tablewrap">
+    <table>
+      <thead><tr><th>Candidate</th><th>Why</th></tr></thead>
+      <tbody>${(batch.skipped ?? [])
+        .map((s) => {
+          // The runner writes `{candidate, reason}`; the slug is the identity. Read defensively
+          // because this array is assembled from a run file that may be older than the field.
+          const slug = s?.candidate ?? s?.slug ?? null;
+          return `<tr><td><strong>${esc(slug ?? "unnamed candidate")}</strong></td><td>${esc(s?.reason ?? "no reason recorded")}</td></tr>`;
+        })
+        .join("")}</tbody>
+    </table>
+    </div>
+    <p class="hint" style="margin-top:12px">A model with no <code>:batch</code> entry in the catalogue
+    cannot be run asynchronously at all. The leg names them rather than leaving a silent gap in the
+    table above, because a missing row reads as an oversight and this is a fact about the catalogue.</p>`
+    : "";
+
+  const measuredCount = rows.filter((c) => c.batch.measured_bill_usd != null).length;
+
+  return `
+    <p class="sub">The Batch API is asynchronous and text-only, one provider per batch chosen at
+    submission with no fallback, and it returns no per-request latency. What it does return is
+    <code>usage.cost</code> for the whole batch — so this route can be priced in two independent
+    ways, and this section keeps them apart. The <em>published</em> columns are what the catalogue
+    lists for the <code>:batch</code> card. The <em>measured</em> columns are what the calls were
+    really charged: the synchronous bill from the sum of that run's per-call costs, the batch bill
+    from the batch's own <code>usage.cost</code>. ${
+      measuredCount
+        ? `${measuredCount} of these candidates were bought as a batch on this workload.`
+        : `No batch was bought on this workload, so the measured columns are empty rather than estimated.`
+    }</p>
+    ${
+      rows.length
+        ? `<div class="tablewrap">
+    <table>
+      <thead><tr>
+        <th>Candidate</th><th class="r">Standard card, per M in – out</th><th class="r">Batch card, per M in – out</th>
+        <th class="r">Published ratio</th><th class="r">Sync bill, measured</th><th class="r">Batch bill, measured</th>
+        <th class="r">Measured ratio</th><th class="r">Submit → done</th>
+      </tr></thead>
+      <tbody>${candidateRows}</tbody>
+    </table>
+    </div>
+    <p class="hint" style="margin-top:12px">The two ratios answer different questions and neither
+    substitutes for the other. The published ratio compares two rate cards and is true of every
+    workload. The measured ratio compares two <em>bills</em> for these ${esc(w.benchmark?.items ?? "?")}
+    questions and is true of this one — a model can publish 50% and settle somewhere else entirely,
+    because caching, tiers and reasoning tokens are not uniformly discounted. OpenRouter's own docs
+    say so about non-token components; this table is what it looks like when it happens.</p>
+    ${
+      allocationRows
+        ? `<h3 style="margin-top:28px">Pricing a monthly volume off the batch bill</h3>
+    <p class="sub">The batch API reports one cost for the batch and none per request, so there is no
+    per-call price to measure. The figures below are the batch bill <em>divided</em> by the calls it
+    completed — arithmetic, not observation — and they are in their own table for that reason. They
+    are what a monthly commitment would be priced from; they are not a per-call measurement, and
+    nothing here should be quoted as one.</p>
+    <div class="tablewrap">
+    <table>
+      <thead><tr>
+        <th>Candidate</th><th class="r">Batch bill, measured</th><th class="r">Calls billed</th>
+        <th class="r">Allocated, per call</th><th class="r">Allocated, at your volume</th><th>Source</th>
+      </tr></thead>
+      <tbody>${allocationRows}</tbody>
+    </table>
+    </div>`
+        : ""
+    }`
+        : `<p class="hint">None of this workload's candidates has a <code>:batch</code> entry in the
+    catalogue, so there is no asynchronous rate to compare.</p>`
+    }
+    ${
+      batch?.declared && !batch?.run_at
+        ? `<p class="hint" style="margin-top:12px">This workload declares a batch leg and no collected
+    batch run was found, so the measured columns are empty. The declaration is not evidence that
+    anything ran.</p>`
+        : ""
+    }
+    ${skipped}
+    ${distributionTable}
+  `;
+}
+
+/** Share, as a percentage string. Null-safe in the way the tables need: no denominator, no claim. */
+function pct(n, d) {
+  if (!d) return "—";
+  return `${((n / d) * 100).toFixed(1)}%`;
+}
+
 function renderRoutes(routes) {
   if (!routes?.length) return "";
   const rows = routes
@@ -1525,6 +1769,11 @@ function renderWorkloadPanels(workloads, model) {
     <h2>${w.workload.kind === "image" ? "The candidates, and what they drew" : "Every candidate, at your volume"}</h2>
     ${w.workload.kind === "image" ? renderImageCandidates(w) : renderCandidates(w)}
   </section>
+${w.workload.kind === "image" ? "" : `
+  <section id="batch">
+    <h2>The same workload, bought asynchronously</h2>
+    ${renderBatch(w, model)}
+  </section>`}
 
   <section>
     <h2>The three procurement routes</h2>
@@ -1557,7 +1806,11 @@ ${renderAssumptions(w, model)}
         <li><strong>A cache hit rate that was measured once.</strong> Moving the prompt size scales the cached and
           uncached halves together, holding the measured hit rate fixed. A prompt with a different shape caches differently.</li>
         <li><strong>Quality that does not travel.</strong> The gate result is for this model on these
-          ${esc(w.benchmark?.items ?? "?")} questions. It is evidence, not a guarantee about your questions.</li>`
+          ${esc(w.benchmark?.items ?? "?")} questions. It is evidence, not a guarantee about your questions.</li>
+        <li><strong>No latency on the asynchronous route.</strong> The Batch API returns no
+          per-request timing, so the ${esc(String(w.workload.latency_ceiling_ms ?? "latency"))}ms ceiling
+          was not applied to any batch here — not passed, not failed, not run. The only timing fact a
+          batch carries is submit-to-terminal, which is a property of the queue.</li>`
         }
         <li><strong>Prices that drift.</strong> Every rate here was read at
           ${esc(model.catalogue_fetched_at ?? "an unrecorded time")}. Re-run the pipeline for today's.</li>
@@ -1610,7 +1863,7 @@ function renderBuiltWith(model) {
           agentic coding tool. Every measured claim on this page is backed by a test or a saved run file.</li>
       </ul>
       <p class="hint" style="margin-bottom:0">Written by Madeline Li &middot;
-        <a href="https://www.linkedin.com/in/madelineshuhui-li">LinkedIn</a></p>
+        <a href="https://www.linkedin.com/in/madeline-shuhui-li/">LinkedIn</a></p>
     </div>
   </section>`;
 }
@@ -1644,6 +1897,10 @@ export function renderReportHtml(model) {
   // single set of inputs re-pointed on tab switch, so it needs all of the workloads' defaults at
   // once; a second copy of them in a second script block is the duplication this avoids.
   const data = {
+    // The catalogue-wide batch distribution, once, not per workload: it is a property of the
+    // catalogue rather than of any tab, and shipping it inside each workload would let two tabs
+    // report different counts for the same catalogue.
+    catalogue: { batch: model.catalogue?.batch ?? null, fetched_at: model.catalogue_fetched_at ?? null },
     workloads: workloads.map((w) => {
       const buyer = w.workload.buyer_estimate ?? {};
       const kind = w.workload.kind;

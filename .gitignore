@@ -1,0 +1,40 @@
+# Secrets - never commit
+.env
+.env.*
+!.env.example
+
+# The parent repo (my-ai-job-search) ignores *.png and *.jpg repo-wide, which would silently
+# drop the README canvas screenshot and any committed demo image - both required by the
+# open-source deliverable. Re-include images FIRST; the generated-outputs rule below must
+# come after this, because the last matching pattern wins.
+!*.png
+!*.jpg
+!samples/**/*.png
+!samples/**/*.jpg
+
+# Outputs - generated, regenerable, never committed
+out/
+outputs/
+*.html
+!samples/**/*.html
+# The published page is a generated file, but it is the deliverable and it has to be committed
+# for GitHub Pages to serve it. Everything else under *.html stays out.
+!index.html
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS
+.DS_Store
+
+# n8n exports that may carry credential references
+!workflow.json
+
+# Internal build notes - planning and application strategy, deliberately not published.
+# The README's "Publishing" section is the authority on what goes out; these two are the
+# exception it names, and they are listed here so the exclusion cannot be forgotten by hand.
+scope.md
+docs/day-*.md

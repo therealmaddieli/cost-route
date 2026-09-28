@@ -26,12 +26,37 @@ const root = path.join(here, "..");
 const outDir = path.join(root, "out");
 
 const catalogue = path.join(outDir, "catalogue-latest.json");
-const benchmark = fs
-  .readdirSync(fs.existsSync(outDir) ? outDir : root)
-  .filter((f) => f.startsWith("benchmark-") && f.endsWith(".json"))
-  .sort()
-  .map((f) => path.join(outDir, f))
-  .pop();
+
+/**
+ * The newest SYNCHRONOUS text run, chosen by the same two filters `scripts/report.mjs` applies.
+ *
+ * This was `sort().pop()` - the newest file outright - and that was correct until the batch leg
+ * started writing runs into the same directory under the same names. The first completed batch
+ * became the fixture here, and the assertion below caught it by refusing to run against one. The
+ * selector has to mirror `benchmarkForKind` rather than approximate it, because the two disagreeing
+ * is exactly the wiring bug this file exists to find, one level up.
+ */
+function newestRun(kind, runMode) {
+  if (!fs.existsSync(outDir)) return null;
+  const files = fs
+    .readdirSync(outDir)
+    .filter((f) => f.startsWith("benchmark-") && f.endsWith(".json"))
+    .sort();
+  for (let i = files.length - 1; i >= 0; i -= 1) {
+    const file = path.join(outDir, files[i]);
+    try {
+      const payload = JSON.parse(fs.readFileSync(file, "utf8"));
+      if ((payload.workload_kind ?? "text") !== kind) continue;
+      if ((payload.run_mode ?? "sync") !== runMode) continue;
+      return file;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+const benchmark = newestRun("text", "sync");
 
 // Both inputs are artefacts of a live run, not fixtures. Without them there is nothing to
 // regenerate and the test would be asserting against a page it silently made up, so it says so.
@@ -247,17 +272,7 @@ test("every failing candidate's reasons are on the page, not only the incumbent'
  * files rather than by parsing a timestamp out of a filename, so this keeps working the next time
  * the benchmark is re-run.
  */
-const imageBenchmark = fs
-  .readdirSync(fs.existsSync(outDir) ? outDir : root)
-  .filter((f) => f.startsWith("benchmark-") && f.endsWith(".json"))
-  .map((f) => path.join(outDir, f))
-  .find((f) => {
-    try {
-      return JSON.parse(fs.readFileSync(f, "utf8")).workload_kind === "image";
-    } catch {
-      return false;
-    }
-  });
+const imageBenchmark = newestRun("image", "sync");
 
 const imagesDir = path.join(root, "samples", "images");
 const imageReady = ready && Boolean(imageBenchmark) && fs.existsSync(imagesDir);
@@ -389,6 +404,134 @@ test("each returned picture is shown with its own run's numbers, not an average"
       assert.ok(
         html.includes(`${ms.toLocaleString("en-US")}</b> ms`),
         `${c.name}: the ${ms}ms run is not printed on its own`
+      );
+    }
+  }
+});
+
+// ---------------------------------------------------------------------------
+// the asynchronous route
+// ---------------------------------------------------------------------------
+
+/** A collected batch run, if one is on disk. Its absence is a state the page must render, not a skip. */
+const batchBenchmark = fs
+  .readdirSync(fs.existsSync(outDir) ? outDir : root)
+  .filter((f) => f.startsWith("benchmark-") && f.endsWith(".json"))
+  .map((f) => path.join(outDir, f))
+  .sort()
+  .reverse()
+  .find((f) => {
+    try {
+      const p = JSON.parse(fs.readFileSync(f, "utf8"));
+      return p.run_mode === "batch" && (p.workload_kind ?? "text") === "text";
+    } catch {
+      return false;
+    }
+  });
+
+const batchRun = batchBenchmark ? JSON.parse(fs.readFileSync(batchBenchmark, "utf8")) : null;
+
+const textWorkload = (html) => embeddedData(html).workloads?.find((w) => w.kind !== "image");
+
+test("a completed batch run is never picked up as the synchronous measurement", { skip: !ready }, () => {
+  const data = embeddedData(generate());
+  const text = textWorkload(generate());
+  assert.ok(text, "the text tab is missing");
+
+  // The bug this exists to prevent: `out/` accumulates both transports under the same file names,
+  // and newest-wins took the first completed batch as the text workload's synchronous run. Every
+  // latency percentile would have gone null and the measured token profile would have come from a
+  // different transport, silently, on a page whose whole argument is that those are not the same.
+  const sync = JSON.parse(fs.readFileSync(benchmark, "utf8"));
+  assert.notEqual(sync.run_mode, "batch", "the fixture itself is a batch run; this test proves nothing");
+
+  for (const c of text.candidates.filter((x) => x.measured)) {
+    assert.ok(
+      c.quality?.latency_ms?.p50 != null,
+      `${c.name} has no p50, so the synchronous run was replaced by a batch one`
+    );
+  }
+  assert.ok(data.workloads.length >= 1);
+});
+
+test("the published batch card reaches the page for every candidate the catalogue sells one for", { skip: !ready }, () => {
+  const html = generate();
+  const text = textWorkload(html);
+
+  const withCard = text.candidates.filter((c) => c.batch);
+  assert.ok(withCard.length > 0, "no candidate carries a batch card, so the section proves nothing");
+
+  for (const c of withCard) {
+    // The two halves must arrive in separate fields. Merging them is the failure this section was
+    // written against: a published rate rendered as though it were a bill.
+    assert.ok(c.batch.batch_slug.endsWith(":batch"), `${c.name} has a batch slug that is not one`);
+    assert.equal(typeof c.batch.prompt_ratio, "number", `${c.name} has no published prompt ratio`);
+    assert.notEqual(c.batch.measured_bill_usd, 0, `${c.name} reports an unmeasured bill as $0`);
+    assert.ok(html.includes(c.batch.batch_slug), `${c.name}'s batch slug is not printed`);
+  }
+});
+
+test("a candidate with no batch card is absent, not zeroed", { skip: !ready }, () => {
+  const text = textWorkload(generate());
+  const without = text.candidates.filter((c) => !c.batch);
+  // A model the catalogue does not sell asynchronously has no batch block at all. A block of nulls
+  // would render as a ratio of zero and a bill of zero, which read as measured-and-free.
+  assert.ok(text.candidates.length > without.length, "every candidate is missing a batch card");
+});
+
+test("the catalogue-wide distribution is counted against the claim, and the outliers are named", { skip: !ready }, () => {
+  const data = embeddedData(generate());
+  const dist = data.catalogue?.batch;
+  assert.ok(dist, "the catalogue distribution never reached the page");
+
+  assert.equal(dist.typical, 0.5, "the typical ratio is not the one OpenRouter's announcement describes");
+  assert.equal(dist.pairs, dist.rows.length, "the row count and the pair count disagree");
+  assert.equal(
+    dist.at_typical + dist.cheaper_than_typical + (dist.dearer_than_typical - dist.costs_more_than_sync) + dist.costs_more_than_sync,
+    dist.rated,
+    "the four buckets do not add up to the rated cards"
+  );
+
+  // The finding is that some cards are not the claimed ratio, and at least one costs more than
+  // doing it synchronously. If a future catalogue makes the claim universally true, this test is
+  // the place that should fail and be rewritten - not the page, silently.
+  const outliers = dist.rows.filter((r) => r.prompt_ratio !== dist.typical);
+  assert.equal(outliers.length, dist.rated - dist.at_typical, "the outlier count disagrees with the buckets");
+  assert.ok(outliers.length > 0, "no outliers found; either the catalogue changed or the pairing broke");
+  assert.ok(dist.costs_more_than_sync > 0, "no card costs more async; the surcharge finding is gone");
+});
+
+test("a batch run that was collected is rendered as measured, with its bill", { skip: !ready || !batchRun || !batchRun.results?.length }, () => {
+  const html = generate();
+  const text = textWorkload(html);
+
+  // `measured_bill_usd` is the batch's own `usage.cost` for the whole batch, and it is the only
+  // measured cost this leg has: a batch result carries `usage` with no `cost` field, so there is no
+  // per-request price to read. `allocated_cost_per_call` is the batch bill divided by its calls -
+  // arithmetic, not observation - and it is deliberately a different field, because the two sitting
+  // in one column is how a derived figure gets quoted as a measurement.
+  const billed = text.candidates.filter((c) => c.batch?.measured_bill_usd != null);
+  assert.ok(billed.length > 0, "a collected batch run produced no measured candidate on the page");
+
+  for (const c of billed) {
+    assert.ok(c.batch.measured_bill_usd > 0, `${c.name} was collected but carries no bill`);
+    assert.ok(c.batch.measured_calls > 0, `${c.name} has a bill and no count of the calls it covers`);
+    // The measured ratio is batch over sync for the SAME candidate. Without the sync half it is an
+    // unanchored number, so it has to travel on the batch block and be a positive figure.
+    assert.ok(c.batch.sync_bill_usd > 0, `${c.name} has a batch bill and no sync figure to compare it to`);
+    assert.ok(c.batch.measured_ratio > 0, `${c.name} has both bills and no ratio between them`);
+    assert.ok(c.batch.batch_id, `${c.name} has no batch id, so the bill cannot be traced back`);
+  }
+
+  // The known trap: the batch leg's timing is the server's `finalized_at` minus the submission time,
+  // never the length of the poll that observed it. A resume against an already-terminal batch polls
+  // for a few hundred milliseconds, so the wrong implementation reports a thirteen-minute queue as
+  // 0.35s - and it did, until it was fixed. Anything under a second here is that bug returning.
+  for (const c of billed) {
+    if (c.batch.submit_to_terminal_ms != null) {
+      assert.ok(
+        c.batch.submit_to_terminal_ms > 1000,
+        `${c.name} reports submit-to-terminal of ${c.batch.submit_to_terminal_ms}ms, which is a poll duration, not a queue wait`
       );
     }
   }

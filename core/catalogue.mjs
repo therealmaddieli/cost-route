@@ -186,6 +186,68 @@ export function normaliseHuggingFaceModel(raw) {
 }
 
 // ---------------------------------------------------------------------------
+// Batch variants
+// ---------------------------------------------------------------------------
+
+/**
+ * The suffix OpenRouter gives a batch rate card. `openai/gpt-5.5` and `openai/gpt-5.5:batch`
+ * are two entries in the same catalogue, with identical `architecture` and different `pricing`.
+ */
+export const BATCH_SUFFIX = ":batch";
+
+/**
+ * Pair every `<slug>:batch` entry with the model it prices.
+ *
+ * Batch is NOT a sixth price mechanic. The five in scope.md:48 (base, cache, tier, reasoning,
+ * per-call) all price *within* one model's rate card; batch is a different card for the same
+ * model. That distinction is what keeps `costPerCall` unchanged: it reads everything from
+ * `model.pricing`, so handing it the variant runs the whole five-mechanic pipeline as-is.
+ *
+ * Pairing is deliberately on the exact `:batch` suffix and never on "contains a colon". `:free`
+ * variants exist too (17 of them on 2026-09-28) and are not batch cards; a looser test would
+ * silently absorb them.
+ *
+ * Degrades rather than throws when a base is missing. All 72 bases resolved on 2026-09-28, but
+ * the catalogue drifts and a missing base must not take the whole build down.
+ */
+function pairBatchVariants(models, bySlug) {
+  let paired = 0;
+  const orphans = [];
+
+  for (const model of models) {
+    if (model.source !== "openrouter" || !model.slug.endsWith(BATCH_SUFFIX)) continue;
+
+    const baseSlug = model.slug.slice(0, -BATCH_SUFFIX.length);
+    model.batch_of = baseSlug;
+
+    // Look up through the SOURCE-SCOPED key, not the bare slug. A model that exists in both
+    // catalogues collides on the bare key: `openai/gpt-oss-120b` is open weights, so it is served
+    // by the HF router as well, and the HF entries are appended after the OpenRouter ones and
+    // overwrite the bare key. Pairing off that key attached the gpt-oss batch cards to the
+    // Hugging Face model instead of the OpenRouter one, and the batch ratios for those two
+    // models silently vanished from the scan (70 pairs reported where 72 exist).
+    const scoped = bySlug.get(`${model.source}:${baseSlug}`) ?? null;
+    const bare = bySlug.get(baseSlug) ?? null;
+    const base = scoped ?? (bare?.source === model.source ? bare : null);
+
+    if (!base) {
+      orphans.push(model.slug);
+      model.flags.push(
+        `batch_variant_without_base: this is a batch rate card but the catalogue carries no entry for ${baseSlug}, so there is nothing to compare it against`
+      );
+      continue;
+    }
+
+    // A live reference, not a copy: the built catalogue is never serialised to disk (the saved
+    // out/catalogue-latest.json holds the raw API bodies), so there is no duplication to pay for.
+    base.batch_variant = model;
+    paired += 1;
+  }
+
+  return { paired, orphans };
+}
+
+// ---------------------------------------------------------------------------
 // The catalogue
 // ---------------------------------------------------------------------------
 
@@ -219,7 +281,92 @@ export function buildCatalogue({ openrouter = null, huggingface = null }, fetche
     bySlug.set(`${model.source}:${model.slug}`, model);
   }
 
-  return { fetched_at: fetchedAt, models, bySlug };
+  const batch = pairBatchVariants(models, bySlug);
+
+  return { fetched_at: fetchedAt, models, bySlug, batch };
+}
+
+/**
+ * What the batch card charges against the standard card, as a ratio. 0.5 is the discount
+ * OpenRouter's own announcement describes ("generally 50%"); 1.0 means batch changes nothing
+ * and above 1.0 means going async costs MORE.
+ *
+ * Returns null ratios where either side publishes no price, rather than treating an unknown as
+ * zero. A missing price and a price of zero are different facts and this must not merge them -
+ * the same rule costPerCall follows for its components.
+ */
+export function batchDiscount(base) {
+  const batch = base?.batch_variant ?? null;
+  if (!batch) return null;
+
+  const ratio = (batchRate, baseRate) => {
+    if (batchRate === null || batchRate === undefined) return null;
+    if (baseRate === null || baseRate === undefined || baseRate === 0) return null;
+    return batchRate / baseRate;
+  };
+
+  const promptRatio = ratio(batch.pricing?.input_per_m, base.pricing?.input_per_m);
+  const completionRatio = ratio(batch.pricing?.output_per_m, base.pricing?.output_per_m);
+
+  return {
+    slug: base.slug,
+    batch_slug: batch.slug,
+    prompt_ratio: promptRatio,
+    completion_ratio: completionRatio,
+    // Null when the ratio is unknown. Deriving this from a bare `ratio < 1` would read a null
+    // ratio as 0 and report an unpriced model as a discount, which is the exact merge the
+    // ratio() guard above exists to prevent.
+    cheaper: promptRatio === null ? null : promptRatio < 1,
+  };
+}
+
+/**
+ * The ratio OpenRouter's own announcement describes: batch "generally charges 50% (and sometimes
+ * less) of their normal per-token price". Named here rather than written as a literal so the scan
+ * and the report are demonstrably counting against the same claim.
+ */
+export const BATCH_TYPICAL_RATIO = 0.5;
+
+/**
+ * The whole catalogue's batch discount, as counts and as rows.
+ *
+ * This lives here rather than in `scripts/batch-scan.mjs`, where it started, because the report now
+ * shows the same distribution. Two implementations of "how many are not 50%" would sooner or later
+ * disagree on the page and in the console, and the page is the one that gets read.
+ *
+ * Rows are sorted by prompt ratio so the outliers come first, and an unpriced pair sorts last
+ * rather than first: a null ratio is not a small discount, it is an absent one, and coercing it
+ * into a sort key is the same merge `batchDiscount` refuses to make.
+ */
+export function batchDistribution(catalogue, typical = BATCH_TYPICAL_RATIO) {
+  const rows = (catalogue?.models ?? [])
+    .filter((m) => m.source === "openrouter" && m.batch_variant)
+    .map((m) => ({
+      ...batchDiscount(m),
+      context_length: m.context_length,
+      tiered: (m.pricing?.tiers?.length ?? 0) > 0,
+    }))
+    .sort((a, b) => {
+      if (a.prompt_ratio === null) return 1;
+      if (b.prompt_ratio === null) return -1;
+      return a.prompt_ratio - b.prompt_ratio;
+    });
+
+  const rated = rows.filter((r) => r.prompt_ratio !== null);
+
+  return {
+    typical,
+    rows,
+    pairs: rows.length,
+    rated: rated.length,
+    unpriced: rows.filter((r) => r.prompt_ratio === null).map((r) => r.slug),
+    at_typical: rated.filter((r) => r.prompt_ratio === typical).length,
+    cheaper_than_typical: rated.filter((r) => r.prompt_ratio < typical).length,
+    // Split deliberately, and this is the split that matters: "dearer than 50%" and "dearer than
+    // doing it synchronously" are different findings, and the second is the one a buyer needs.
+    dearer_than_typical: rated.filter((r) => r.prompt_ratio > typical).length,
+    costs_more_than_sync: rated.filter((r) => r.prompt_ratio > 1).length,
+  };
 }
 
 /** Look up one model, optionally pinning which catalogue it must come from. */
@@ -260,6 +407,12 @@ export function catalogueSummary(catalogue) {
     openrouter_models_with_image_output_price: catalogue.models.filter(
       (m) => m.source === "openrouter" && m.pricing?.image_output_per_m !== null
     ).length,
+    // Not a mechanism (see BATCH_SUFFIX above) but reported beside them, because a buyer asking
+    // "what does this catalogue let me choose between" is asking the same question.
+    openrouter_models_with_batch_card: catalogue.models.filter(
+      (m) => m.source === "openrouter" && m.batch_variant
+    ).length,
+    openrouter_batch_cards_without_base: catalogue.batch?.orphans?.length ?? 0,
   };
 
   return {

@@ -119,6 +119,30 @@ node scripts/shot.mjs out/report.html out/shots 360 400  # responsive screenshot
 node scripts/artifact.mjs                                # the hostable variant of the page
 ```
 
+### The asynchronous route
+
+The catalogue comparison is free and needs no key — it reads the saved catalogue and reports what
+every `:batch` card charges against its standard card:
+
+```bash
+node scripts/batch-scan.mjs          # 72 pairs, no spend, no submission
+node scripts/batch-scan.mjs --fetch  # refresh the catalogue first
+```
+
+Buying one is a two-phase job, because the Batch API is asynchronous and its beta 99th percentile was
+10.3 hours. Submissions are all sent before any is polled, and the batch id is written to `out/`
+before the first poll, so a run that outlives the session is resumable rather than lost:
+
+```bash
+node scripts/benchmark.mjs --workload samples/workload.legal.json --batch   # submit, then poll
+node scripts/benchmark.mjs --batch-collect <id>[,<id>...] --batch-wait 40   # resume and collect
+```
+
+`--batch-wait` is minutes and defaults to 45. A collect that times out exits **3** and prints the
+command to resume with; nothing is lost, because the ids are on disk. A completed batch is written as
+its own run file with `run_mode: "batch"`, which is what keeps the report from mistaking it for the
+synchronous measurement.
+
 **What a full run costs:** the current text leg cost **$0.96** in API spend, and **$0.80 of that
 was Claude Fable alone** — the frontier model dominates the bill, which is the finding rather than
 a caveat. The image pair is separate. `--items 3` on the benchmark runner is a
@@ -288,10 +312,22 @@ would catch a fabricated figure rather than only a wrong one.
   exactly one place; the unit is printed on the report.
 - **Black Forest Labs / FLUX** — no longer a build dependency. FLUX appears as a licence and
   distribution row read from the Hub card, labelled as read and never as measured.
+- **The Batch API** — no extra source. Every `<slug>:batch` is already a full entry in the same
+  `GET /models` response, with its own `pricing` object, so the whole sync-versus-async comparison is
+  readable without submitting anything. That is why the scan costs nothing and why the report can put
+  a published ratio beside a measured bill without conflating them: **the catalogue `:batch` price is
+  read; `usage.cost` on a completed batch is measured**, and the page labels each column.
 
-The committed report reads its catalogues at **2026-09-15T16:39:21Z** and made its calls on
-**2026-09-17**, and says both on the page. Prices move: re-running reproduces the method, not these
-exact figures. The only signal a model may be withdrawn is its disappearance from the catalogue, so
+OpenRouter's announcement says batch requests "generally charge 50% (and sometimes less) of their
+normal per-token price". On the 2026-09-28 catalogue (read 09:03:36Z) that is 65 of 72 cards exactly
+— and two cards charge **more** asynchronously than synchronously. The ratio is also not reliably
+reproducible: the same endpoint returned `z-ai/glm-5.3` at a ×2.521 async surcharge and then at a
+×0.321 discount four minutes later, with its batch card unchanged throughout.
+`docs/batch-partner-brief.md` works through what that means for a partner paid on a share of spend.
+
+The committed report reads its catalogues at **2026-09-28T09:03:36Z** and made its calls on
+**2026-09-21** (legal) and **2026-09-17** (image), and says all three on the page. Prices move:
+re-running reproduces the method, not these exact figures. The only signal a model may be withdrawn is its disappearance from the catalogue, so
 slugs are never hardcoded in the renderer.
 
 All workload data in this repository is **synthetic**: a made-up contract, made-up questions with
@@ -308,7 +344,8 @@ scripts/         the CLIs: smoke test, price, benchmark, report, artifact, scree
 tests/           the test suite (node --test, no dependencies)
 samples/         the two demo workloads, the synthetic contract, the generated images
 workflow.json    the n8n workflow that orchestrates the live calls
-docs/            units.md (the one-place unit conversion) and the n8n canvas screenshot
+docs/            units.md (the one-place unit conversion), the n8n canvas screenshot, and the
+                 Batch API partner brief
 index.html       the published report, a copy of the generated out/report.html
 out/             generated output: catalogues, benchmark runs, the report (gitignored)
 ```
@@ -356,8 +393,8 @@ The public repository is these paths and nothing else:
 
 ```
 core/  scripts/  tests/  samples/  workflow.json
-docs/units.md  docs/n8n-canvas.png
-README.md  LICENSE  index.html  .nojekyll
+docs/units.md  docs/n8n-canvas.png  docs/batch-partner-brief.md
+README.md  LICENSE  index.html  .nojekyll  .gitignore  .env.example
 ```
 
 `scope.md` and `docs/day-*.md` are internal build notes, including planning and application

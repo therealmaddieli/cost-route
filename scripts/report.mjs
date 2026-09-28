@@ -27,7 +27,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { buildCatalogue, catalogueSummary, findModel } from "../core/catalogue.mjs";
+import { buildCatalogue, catalogueSummary, findModel, batchDiscount, batchDistribution } from "../core/catalogue.mjs";
 import { profileFromRuns } from "../core/cost.mjs";
 import { byKind, errorKinds, measuredCostPerCall } from "../core/scorer.mjs";
 import { routeFor, buildRouteTable, selfHostEstimate } from "../core/routes.mjs";
@@ -96,14 +96,21 @@ async function loadCatalogues() {
 }
 
 /**
- * The newest benchmark run for one workload kind.
+ * The newest benchmark run for one workload kind AND one transport.
  *
  * Newest-wins is right, but only within a kind. `out/` holds every run ever made and the image and
  * text runs sit side by side; taking the newest file outright meant that the moment an image run
  * landed, the text page began rendering image measurements against a golden set it does not have,
  * and five tests caught it. Reading `workload_kind` is what keeps the two apart.
+ *
+ * `run_mode` is the same trap one level down, and it arrived with the batch leg. A batch run is
+ * written to the same directory, with the same names, carrying `workload_kind: "text"` — so the
+ * first completed batch would have been picked up as the text workload's synchronous measurement,
+ * silently replacing every latency percentile with a null and the measured token profile with a
+ * batch one. Two filters, for the same reason, both falling back to the value that predates the
+ * field: before `run_mode` existed the runner had exactly one transport, and it was synchronous.
  */
-function benchmarkForKind(kind) {
+function benchmarkForKind(kind, runMode = "sync") {
   if (benchmarkFile) return path.resolve(root, benchmarkFile);
   const dir = path.join(root, "out");
   if (!fs.existsSync(dir)) return null;
@@ -119,7 +126,9 @@ function benchmarkForKind(kind) {
       const payload = JSON.parse(fs.readFileSync(candidate, "utf8"));
       // Files written before the runner stamped a kind are text runs: they carry a golden set and
       // the runner that produced them had exactly one shape.
-      if ((payload.workload_kind ?? "text") === kind) return candidate;
+      if ((payload.workload_kind ?? "text") !== kind) continue;
+      if ((payload.run_mode ?? "sync") !== runMode) continue;
+      return candidate;
     } catch {
       continue; // an unreadable or half-written run is skipped, not fatal
     }
@@ -214,6 +223,66 @@ function effectiveInputRate(model, profile) {
   return (cost / (input / 1e6));
 }
 
+/**
+ * One candidate's batch story, in the two halves the page must never blur.
+ *
+ * READ is what the catalogue publishes for `<slug>:batch` — a price list, true of the card and of
+ * nothing that has been bought. MEASURED is `usage.cost` on a batch that really ran, divided by the
+ * calls it answered, and it is the authority for what the async route actually costs. The distance
+ * between the two is the finding, so they travel in separate fields and the renderer labels each.
+ *
+ * A candidate with no batch card at all returns null rather than a block of nulls: "this model has
+ * no async rate" and "this model has an async rate nobody read" are different, and only the first
+ * one is true here.
+ */
+function batchFor(model, batchRun, callsPerMonth, syncCostPerCall, syncBillUsd) {
+  const card = model?.batch_variant ? batchDiscount(model) : null;
+  if (!card) return null;
+
+  const billed = batchRun?.batch ?? null;
+  // The allocated per-call figure, NOT `measuredCostPerCall`. A batch result carries `usage` with no
+  // `cost` field, so the shared per-call function returns null on this leg by construction - there
+  // is no per-call price to measure. The batch total is real and dividing it is arithmetic, so the
+  // figure travels with the word "allocated" attached and the page prints it that way.
+  const perCall = billed?.cost_per_call_allocated_usd ?? null;
+
+  // The headline ratio, computed from two BILLS rather than two per-call figures: the batch's own
+  // `usage.cost`, against the summed cost of the synchronous calls for the same questions. Both are
+  // real charges, and neither is an average of the other.
+  const measuredRatio =
+    billed?.batch_cost_usd != null && syncBillUsd > 0 ? billed.batch_cost_usd / syncBillUsd : null;
+
+  return {
+    // --- read: the published card ---
+    batch_slug: card.batch_slug,
+    batch_input_per_m: model.batch_variant.pricing?.input_per_m ?? null,
+    batch_output_per_m: model.batch_variant.pricing?.output_per_m ?? null,
+    batch_cache_read_per_m: model.batch_variant.pricing?.cache_read_per_m ?? null,
+    prompt_ratio: card.prompt_ratio,
+    completion_ratio: card.completion_ratio,
+    cheaper: card.cheaper,
+    batch_tiers: model.batch_variant.pricing?.tiers?.length ?? 0,
+    // --- measured: the bill, where a batch really ran ---
+    measured_bill_usd: billed?.batch_cost_usd ?? null,
+    measured_calls: billed?.request_counts?.completed ?? null,
+    measured_failed: billed?.request_counts?.failed ?? null,
+    // Allocated, not measured. Kept in its own field so a renderer cannot print it as a per-call
+    // price without having chosen to.
+    allocated_cost_per_call: perCall,
+    cost_source: billed?.cost_source ?? null,
+    measured_monthly_usd: perCall != null && callsPerMonth ? perCall * callsPerMonth : null,
+    submit_to_terminal_ms: billed?.submit_to_terminal_ms ?? null,
+    timing_source: billed?.timing_source ?? null,
+    batch_id: billed?.batch_id ?? null,
+    // The synchronous side of the comparison, carried here rather than left to the renderer to fetch
+    // from the candidate row. The two columns must come from one object or they will eventually be
+    // paired across runs.
+    sync_cost_per_call: syncCostPerCall ?? null,
+    sync_bill_usd: syncBillUsd > 0 ? syncBillUsd : null,
+    measured_ratio: measuredRatio,
+  };
+}
+
 /** The quality gate as the page displays it: measured facts, locked. */
 function qualityFor(result, kindById = {}) {
   if (!result?.summary) return null;
@@ -265,9 +334,20 @@ async function buildWorkload(workloadFile, catalogue, callsPerMonthOverride) {
     ? JSON.parse(fs.readFileSync(benchPath, "utf8"))
     : null;
 
+  // The asynchronous leg, if one was ever collected. Found by `run_mode`, so a completed batch can
+  // never be mistaken for the synchronous measurement - see benchmarkForKind above. Optional in
+  // every sense: the page renders the published batch card and says the bill was not measured, which
+  // is a true and complete statement about the async route, where a page that quietly omitted the
+  // section would read as though the route had never been considered.
+  const batchPath = benchmarkForKind(kind, "batch");
+  const batchBenchmark = batchPath && fs.existsSync(batchPath)
+    ? JSON.parse(fs.readFileSync(batchPath, "utf8"))
+    : null;
+
   console.log(`\n  workload     ${workload.workload_name} (${kind})`);
   console.log(`  file         ${path.relative(root, file)}`);
   console.log(`  benchmark    ${benchPath ? path.relative(root, benchPath) : "none found for this kind"}`);
+  if (batchPath) console.log(`  batch run    ${path.relative(root, batchPath)}`);
 
   const candidates = workload.candidates ?? [];
   const entries = [];
@@ -310,6 +390,16 @@ async function buildWorkload(workloadFile, catalogue, callsPerMonthOverride) {
     // Sum, not per-call, and the conversion lives beside the code that creates the sum so the two
     // cannot drift. See measuredCostPerCall in core/scorer.mjs.
     const perCall = measuredCostPerCall(measured?.result?.summary ?? null);
+    // The synchronous leg's total bill for this candidate, summed from the runs. This is what the
+    // batch total is compared against: two bills for the same questions, neither an average.
+    const syncBill = (measured?.result?.runs ?? []).reduce((a, r) => a + (r.cost ?? 0), 0);
+
+    // The batch run for this same candidate, found by slug and source exactly as the synchronous
+    // one is. A candidate the batch leg skipped - no `:batch` card, or a card the API refuses - has
+    // no entry here, and `batchFor` reports only the published side for it.
+    const batchResult = (batchBenchmark?.results ?? []).find(
+      (r) => r.slug === c.slug && r.source === model.source
+    );
 
     entries.push({
       key: `${model.source}:${model.slug}`,
@@ -343,6 +433,10 @@ async function buildWorkload(workloadFile, catalogue, callsPerMonthOverride) {
         : null,
       effective_input_per_m: effectiveInputRate(model, measured?.profile),
       measured_cost_per_call: perCall != null && measured.result.summary.total ? perCall : null,
+      // The async rate card, and the async bill where one was measured. Null for a model with no
+      // `:batch` entry in the catalogue - which is a real answer on this tab, because the reader is
+      // choosing between routes and "you cannot buy this one asynchronously" is part of the choice.
+      batch: batchFor(model, batchResult, callsPerMonth, perCall, syncBill),
       // No `measured_runs`. It counted calls that returned usage; the page's Served column counts
       // calls that returned an answer. Two definitions of "served" one field apart is how the
       // scored/total conflation started, so the page reads quality.scored over quality.total and the
@@ -422,6 +516,20 @@ async function buildWorkload(workloadFile, catalogue, callsPerMonthOverride) {
     benchPath,
     benchmark,
     callsPerMonth,
+    batch: {
+      // What the workload file declares, not what was achieved. A declaration with no run behind it
+      // is rendered as declared-and-not-run, which is the state a reader most needs to be able to
+      // tell apart from "ran and found nothing".
+      declared: workload.batch?.enabled === true,
+      completion_window: workload.batch?.completion_window ?? null,
+      run_at: batchBenchmark?.run_at ?? null,
+      path: batchPath ? path.relative(root, batchPath) : null,
+      // Candidates the batch leg refused or could not reach. On the page rather than only in the
+      // run file, because "why is this model missing from the async column" is a question the table
+      // raises by its own shape.
+      skipped: batchBenchmark?.batch_skipped ?? [],
+      measured_candidates: (batchBenchmark?.results ?? []).length,
+    },
   };
 }
 
@@ -480,6 +588,7 @@ async function main() {
             path: path.relative(root, b.benchPath),
           }
         : {},
+      batchMeta: b.batch,
     })),
     catalogueMeta: {
       fetched_at: summary.fetched_at,
@@ -487,6 +596,11 @@ async function main() {
       huggingface_models: summary.by_source.huggingface ?? null,
       hf_provider_entries: summary.huggingface_provider_entries ?? null,
       hf_unpriced: summary.huggingface_providers_without_pricing ?? null,
+      // The catalogue-wide discount distribution, computed here rather than read back from the
+      // newest out/batch-scan-*.json. The scan and this call the same function in
+      // core/catalogue.mjs, so the page and the console cannot disagree, and the report stops
+      // depending on whether someone happened to run the scan first.
+      batch: batchDistribution(catalogue),
     },
     generatedAt: new Date().toISOString(),
     n8nCanvas,

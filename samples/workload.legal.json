@@ -26,6 +26,14 @@
 
   "latency_ceiling_ms": 15000,
 
+  "$batch_note": "Additive: a workload without this block runs synchronously and is unaffected by it. The batch leg sends the identical golden set through POST /api/v1/batches, one submission per candidate, and costs these candidates their per-call latency measurement - the Batch API exposes none. The ceiling above therefore does NOT run on that leg, and the runner says so in the run record rather than letting an unchecked PASS stand in for a checked one.",
+  "batch": {
+    "enabled": true,
+    "completion_window": "24h",
+    "provider": null,
+    "$provider_note": "null means OpenRouter picks. provider.only is the only provider preference the Batch API accepts; order, sort and allow_fallbacks are rejected, so pinning a provider here narrows routing rather than expressing a preference."
+  },
+
   "monthly_requests": 20000,
 
   "buyer_estimate": {
