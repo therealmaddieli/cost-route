@@ -560,6 +560,35 @@ tr.total td { border-top: 2px solid var(--line); font-weight: 600; }
 .wf .bar span.up { background: var(--bad); }
 .wf .note { color: var(--ink-3); font-size: 12.5px; }
 
+/* candidate scatter and live waterfall charts */
+svg.chart { width: 100%; height: auto; display: block; overflow: visible; margin-top: 14px; }
+svg.chart text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+.ax-line { stroke: var(--line); stroke-width: 1; }
+.ax-grid { stroke: var(--line-2); stroke-width: 1; }
+.ax-label { fill: var(--ink-3); font-size: 11px; }
+.thresh-line { stroke: var(--ink-3); stroke-width: 1; }
+.thresh-label { fill: var(--ink-3); font-size: 11px; }
+.mk-pass { fill: var(--measured); stroke: var(--card); stroke-width: 2; }
+.mk-fail { fill: var(--bad); stroke: var(--card); stroke-width: 2; }
+.mk-ref { fill: var(--line); stroke: var(--ink-3); stroke-width: 1.5; }
+.pt-label { fill: var(--ink-2); font-size: 12px; font-weight: 600; }
+.callout-box { fill: var(--bg); stroke: var(--line); stroke-width: 1; }
+.callout-text { fill: var(--ink-2); font-size: 11.5px; }
+.callout-lead { stroke: var(--ink-3); stroke-width: 1; fill: none; }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 16px 24px; margin: 12px 0 4px; font-size: 12.5px; color: var(--ink-2); align-items: center; }
+.chart-legend .item { display: flex; align-items: center; gap: 7px; }
+.chart-legend svg { flex: none; }
+.wf-row-label { fill: var(--ink-2); font-size: 12.5px; }
+.wf-total { fill: var(--ink-2); }
+.wf-total-ring { fill: none; stroke: var(--accent); stroke-width: 2; }
+.wf-up { fill: var(--bad); }
+.wf-down { fill: var(--measured); }
+.wf-connector { stroke: var(--line); stroke-width: 1; }
+.wf-value { fill: var(--ink); font-size: 12.5px; font-weight: 600; }
+.wf-value-strong { fill: var(--ink); font-size: 13px; font-weight: 700; }
+.wf-note-text { fill: var(--ink-3); font-size: 11px; }
+.wf-dot { fill: var(--ink-3); }
+
 ul.tight { margin: 6px 0 0; padding-left: 18px; }
 ul.tight li { margin-bottom: 5px; }
 .flag { border-left: 3px solid var(--assumed); background: var(--assumed-bg); padding: 10px 14px; border-radius: 0 6px 6px 0; margin: 12px 0; font-size: 13.5px; }
@@ -674,10 +703,43 @@ function licenceCell(row) {
 }
 
 /** The waterfall. Locked: every figure here comes from the engine, not from the page's inputs. */
-function renderWaterfall(ledger) {
+function renderWaterfall(ledger, workloadIndex, chartEnabled) {
   if (!ledger?.available) {
     return `<p class="hint">No bridge: ${esc(ledger?.reason ?? "no ledger was produced")}.</p>`;
   }
+
+  // The chart re-walks the same four dimensions client-side, in the same order, as the panel above
+  // moves - see renderWaterfallChart in the client script. An image workload's bridge inserts a
+  // fifth dimension (image output tokens) between answer length and caching that walk does not
+  // model, so the chart is only offered where chartEnabled says the bridge is the plain four-step
+  // kind; the table below is unaffected either way and always shows the frozen, build-time numbers.
+  const chart = chartEnabled
+    ? `<svg class="chart" id="wf-svg-${workloadIndex}" viewBox="0 0 900 390" role="img"
+        aria-label="Waterfall chart from the buyer's stated estimate to the measured cost">
+        <g id="wf-grid-x-${workloadIndex}"></g>
+        <line class="ax-line" x1="200" y1="340" x2="830" y2="340"/>
+        <g id="wf-grid-labels-${workloadIndex}"></g>
+        <g id="wf-connectors-${workloadIndex}"></g>
+        <text class="wf-row-label" x="190" y="45" text-anchor="end">Buyer's estimate</text>
+        <text class="wf-row-label" x="190" y="85" text-anchor="end">Arithmetic correction</text>
+        <text class="wf-row-label" x="190" y="125" text-anchor="end">Buyer's own assumptions</text>
+        <text class="wf-row-label" x="190" y="165" text-anchor="end">Prompt size</text>
+        <text class="wf-row-label" x="190" y="205" text-anchor="end">Answer length</text>
+        <text class="wf-row-label" x="190" y="245" text-anchor="end">Prompt caching</text>
+        <text class="wf-row-label" x="190" y="285" text-anchor="end">Reasoning tokens</text>
+        <text class="wf-row-label" x="190" y="325" text-anchor="end">Measured</text>
+        <g id="wf-bars-${workloadIndex}"></g>
+        <g id="wf-labels-${workloadIndex}"></g>
+      </svg>
+      <div class="chart-legend">
+        <div class="item"><svg width="18" height="14"><rect x="1" y="4" width="16" height="8" rx="2" class="wf-total"/></svg> Total (a real running figure)</div>
+        <div class="item"><svg width="18" height="14"><rect x="1" y="4" width="16" height="8" rx="2" class="wf-up"/></svg> Raises the bill</div>
+        <div class="item"><svg width="18" height="14"><rect x="1" y="4" width="16" height="8" rx="2" class="wf-down"/></svg> Lowers the bill</div>
+        <div class="item"><svg width="18" height="14"><rect x="2" y="2" width="14" height="10" rx="4" style="fill:none;stroke:var(--accent);stroke-width:2"/></svg> Measured (the answer)</div>
+      </div>
+      <p class="hint" style="margin:10px 0 0" id="wf-note-line-${workloadIndex}"></p>
+      <p class="hint" style="margin:4px 0 0">The table below is the same walk, frozen at the numbers current when this page was generated.</p>`
+    : "";
 
   // Scale the bars to the largest absolute step so the waterfall is readable at any magnitude.
   const maxAbs = Math.max(...ledger.steps.map((s) => Math.abs(s.saving_usd ?? 0)), 0.0001);
@@ -757,6 +819,7 @@ function renderWaterfall(ledger) {
     The dollar figure is what that mechanic was worth <em>given everything changed above it</em>, so the steps
     sum to the gap between the buyer's own assumptions and the measurement, not to the column total.
     Negative means the correction made the bill cheaper.</p>
+    ${chart}
     <div class="tablewrap">
     <table class="wf">
       <thead><tr><th>Step</th><th>Tokens per call</th><th class="r">Effect on the bill</th><th></th></tr></thead>
@@ -824,7 +887,7 @@ function renderIncumbentGate(model) {
   `;
 }
 
-function renderCandidates(model) {
+function renderCandidates(model, workloadIndex) {
   const rows = model.candidates
     .map((c, i) => {
       const q = c.quality;
@@ -896,6 +959,19 @@ function renderCandidates(model) {
   const hi = rates.length ? Math.max(...rates) : null;
   const spread = lo && hi && lo > 0 && hi > lo ? Math.round(hi / lo) : null;
 
+  // The threshold line on the scatter chart below. Fixed at build time because the bar is measured,
+  // not a reader input: it never moves when the panel above does. The y-axis itself runs a fixed
+  // 70-100%, which comfortably holds every score this benchmark has produced so far; a workload
+  // whose bar or whose candidates' scores fall outside that band would need this range widened.
+  const bar = model.workload?.quality_bar ?? {};
+  const barShare = bar.min_correct_share;
+  const barY = barShare != null ? 30 + ((1 - barShare) / 0.3) * 300 : null;
+  const barLabel =
+    barShare != null
+      ? `${Math.round(barShare * 100)}% floor` +
+        (bar.max_hallucinations != null ? ` (and ${bar.max_hallucinations} fabricated answers allowed)` : "")
+      : null;
+
   return `
     <p class="sub"><strong>The shortlist is an input, not a finding.</strong> These are the models the
     buyer named, spanning ${rateUsd(lo)} to ${rateUsd(hi)} per 1M input tokens${
@@ -907,6 +983,35 @@ function renderCandidates(model) {
     cannot be recomputed in a browser. Cost per call and per month respond to the panel at the top of
     the page.</p>
     ${renderIncumbentGate(model)}
+    <svg class="chart" id="sc-svg-${workloadIndex}" viewBox="0 0 860 380" role="img"
+      aria-label="Scatter chart of monthly cost against measured accuracy for each candidate; marker size shows p95 latency">
+      <line class="ax-grid" x1="70" y1="30" x2="830" y2="30"/>
+      <line class="ax-grid" x1="70" y1="130" x2="830" y2="130"/>
+      <line class="ax-grid" x1="70" y1="230" x2="830" y2="230"/>
+      <line class="ax-line" x1="70" y1="330" x2="830" y2="330"/>
+      <text class="ax-label" x="60" y="34" text-anchor="end">100%</text>
+      <text class="ax-label" x="60" y="134" text-anchor="end">90%</text>
+      <text class="ax-label" x="60" y="234" text-anchor="end">80%</text>
+      <text class="ax-label" x="60" y="334" text-anchor="end">70%</text>
+      <text class="ax-label" x="26" y="180" text-anchor="middle" transform="rotate(-90 26 180)">Accuracy</text>
+      <g id="sc-grid-x-${workloadIndex}"></g>
+      <line class="ax-line" x1="70" y1="330" x2="830" y2="330"/>
+      <text class="ax-label" x="450" y="368" text-anchor="middle" id="sc-axis-title-${workloadIndex}">Monthly cost (log scale)</text>
+      ${
+        barY != null
+          ? `<line class="thresh-line" x1="70" y1="${barY}" x2="830" y2="${barY}"/>
+      <text class="thresh-label" x="826" y="${barY - 7}" text-anchor="end">${esc(barLabel)}</text>`
+          : ""
+      }
+      <g id="sc-points-${workloadIndex}"></g>
+      <g id="sc-labels-${workloadIndex}"></g>
+      <g id="sc-callout-${workloadIndex}"></g>
+    </svg>
+    <div class="chart-legend">
+      <div class="item"><svg width="14" height="14"><circle class="mk-pass" cx="7" cy="7" r="6"/></svg> Clears the quality gate</div>
+      <div class="item"><svg width="14" height="14"><rect class="mk-fail" x="3" y="3" width="8" height="8" transform="rotate(45 7 7)"/></svg> Fails the quality gate</div>
+      <span class="sub" style="margin:0">Marker size: p95 latency</span>
+    </div>
     <div class="tablewrap">
     <table>
       <thead><tr>
@@ -1762,12 +1867,12 @@ function renderWorkloadPanels(workloads, model) {
     <h2>Where the estimate went wrong</h2>
     <p class="sub">The buyer said ${usd(w.workload.buyer_estimate?.assumed_cost_per_month_usd)}/month. Here is
     every named reason that number is not what this workload costs, and what each one is worth.</p>
-    ${renderWaterfall(w.ledger)}
+    ${renderWaterfall(w.ledger, i, w.workload.kind !== "image")}
   </section>
 
   <section>
     <h2>${w.workload.kind === "image" ? "The candidates, and what they drew" : "Every candidate, at your volume"}</h2>
-    ${w.workload.kind === "image" ? renderImageCandidates(w) : renderCandidates(w)}
+    ${w.workload.kind === "image" ? renderImageCandidates(w) : renderCandidates(w, i)}
   </section>
 ${w.workload.kind === "image" ? "" : `
   <section id="batch">
@@ -2023,6 +2128,244 @@ ${CLIENT_FN_SRC}
     return "$" + n.toFixed(places == null ? 2 : places);
   };
   var num = function (n) { return Math.round(n).toLocaleString(); };
+
+  // -------------------------------------------------------------------------
+  // charts: a cost/quality/latency scatter and a live waterfall
+  // -------------------------------------------------------------------------
+  //
+  // Both reuse reportCostPerCall, the same tested function the table and the panel above already
+  // call, so the chart and the numbers beside it can never disagree. Quality and latency never move
+  // - they are measured - only a point's position on the cost axis, and the waterfall's bars,
+  // respond to the panel.
+
+  function niceLogTicks(lo, hi) {
+    var steps = [1, 2, 3, 5], ticks = [];
+    var d0 = Math.floor(Math.log10(lo)), d1 = Math.ceil(Math.log10(hi));
+    for (var d = d0; d <= d1; d++) {
+      for (var s = 0; s < steps.length; s++) {
+        var v = steps[s] * Math.pow(10, d);
+        if (v >= lo * 0.999 && v <= hi * 1.001) ticks.push(v);
+      }
+    }
+    if (ticks.length > 6) ticks = ticks.filter(function (v, i) { return i % 2 === 0 || v === ticks[ticks.length - 1]; });
+    return ticks;
+  }
+  function fmtAxisMoney(v) { return Math.abs(v - Math.round(v)) < 0.001 ? "$" + Math.round(v) : "$" + v.toFixed(v < 1 ? 2 : 1); }
+  function niceLinearTicks(max, count) {
+    if (max <= 0) max = 1;
+    var rawStep = max / count;
+    var mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
+    var norm = rawStep / mag;
+    var niceNorm = norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10;
+    var step = niceNorm * mag;
+    var ticks = [];
+    for (var v = 0; v <= max + step * 0.001; v += step) ticks.push(Math.round(v * 100) / 100);
+    return ticks;
+  }
+
+  /**
+   * Cost vs. quality, sized by p95 latency. Reuses "results", the same array the candidate table
+   * just rendered its Monthly column from, so the chart and the table can never show two different
+   * numbers for the same input.
+   */
+  function renderScatterChart(workloadIndex, candidates, results, volume) {
+    if (!$("sc-svg-" + workloadIndex)) return;
+
+    var meta = candidates.map(function (c) {
+      var q = c.quality;
+      if (!q || !q.latency_ms || q.correct_share == null) return null;
+      return { correctShare: q.correct_share, p95: q.latency_ms.p95, pass: String(q.verdict).toUpperCase() === "PASS", hallucinations: q.hallucination_count || 0 };
+    });
+    var latVals = [];
+    meta.forEach(function (m) { if (m) latVals.push(m.p95); });
+    if (!latVals.length) return;
+    var latMin = Math.min.apply(null, latVals), latMax = Math.max.apply(null, latVals);
+    function rForLatency(ms) {
+      if (latMax === latMin) return 14;
+      var s = Math.sqrt(ms), s0 = Math.sqrt(latMin), s1 = Math.sqrt(latMax);
+      return 8 + (s - s0) / (s1 - s0) * 18;
+    }
+    function yForAccuracy(share) { return 30 + ((1 - share) / 0.3) * 300; }
+
+    var L = 70, R = 830, T = 20, B = 330;
+    var monthly = candidates.map(function (c, i) {
+      var r = results[i];
+      return r && r.complete && volume != null ? r.per_call_usd * volume : null;
+    });
+    var positive = [];
+    monthly.forEach(function (v) { if (v != null && v > 0) positive.push(v); });
+    var lo = positive.length ? Math.min.apply(null, positive) / 1.8 : 1;
+    var hi = positive.length ? Math.max.apply(null, positive) * 1.8 : 1000;
+    if (lo <= 0) lo = 0.01;
+    function xw(v) {
+      var vv = Math.max(v == null ? lo : v, lo);
+      return L + (Math.log10(vv) - Math.log10(lo)) / (Math.log10(hi) - Math.log10(lo)) * (R - L);
+    }
+
+    var ticks = niceLogTicks(lo, hi);
+    var gridHtml = ticks.map(function (t) {
+      var x = xw(t);
+      return '<line class="ax-grid" x1="' + x + '" y1="' + T + '" x2="' + x + '" y2="' + B + '"/>' +
+        '<text class="ax-label" x="' + x + '" y="348" text-anchor="middle">' + fmtAxisMoney(t) + "</text>";
+    }).join("");
+    if ($("sc-grid-x-" + workloadIndex)) $("sc-grid-x-" + workloadIndex).innerHTML = gridHtml;
+    if ($("sc-axis-title-" + workloadIndex)) $("sc-axis-title-" + workloadIndex).textContent = "Monthly cost at " + num(volume || 0) + " requests (log scale)";
+
+    var incumbentIndex = -1;
+    candidates.forEach(function (c, i) { if (c.incumbent) incumbentIndex = i; });
+
+    var pts = candidates.map(function (c, i) {
+      var m = meta[i];
+      if (!m) return null;
+      return { i: i, x: xw(monthly[i]), y: yForAccuracy(m.correctShare), r: rForLatency(m.p95), pass: m.pass };
+    });
+
+    // labels sharing a quality tier can end up close enough on the cost axis to collide; stagger
+    // onto a second row rather than let the text overlap.
+    var byTier = {};
+    pts.forEach(function (p) { if (p && p.i !== incumbentIndex) { var k = Math.round(p.y); (byTier[k] = byTier[k] || []).push(p); } });
+    var labelLevel = {};
+    Object.keys(byTier).forEach(function (k) {
+      var group = byTier[k].slice().sort(function (a, b) { return a.x - b.x; });
+      var rightEdgeAtLevel = {};
+      group.forEach(function (p) {
+        var nm = candidates[p.i].name.length > 20 ? candidates[p.i].name.slice(0, 20) : candidates[p.i].name;
+        var halfWidth = nm.length * 3.6 + 6;
+        var level = 0;
+        while (rightEdgeAtLevel[level] != null && p.x - halfWidth < rightEdgeAtLevel[level] + 6) level++;
+        rightEdgeAtLevel[level] = p.x + halfWidth;
+        labelLevel[p.i] = level;
+      });
+    });
+
+    var pointsHtml = "", labelsHtml = "", calloutHtml = "";
+    pts.forEach(function (p) {
+      if (!p) return;
+      var c = candidates[p.i], m = meta[p.i];
+      var title = c.name + ", " + (m.correctShare * 100).toFixed(1) + "% correct" +
+        (m.hallucinations ? " but " + m.hallucinations + " fabricated answer" : "") +
+        (monthly[p.i] != null ? ", " + fmt(monthly[p.i]) + "/mo" : "") + ", p95 " + num(m.p95) + " ms" + (p.pass ? "" : ". Fails the gate.");
+      if (p.pass) {
+        pointsHtml += '<circle class="mk-pass" cx="' + p.x + '" cy="' + p.y + '" r="' + p.r + '"><title>' + title + "</title></circle>";
+      } else {
+        var half = p.r * 0.8;
+        pointsHtml += '<rect class="mk-fail" x="' + (p.x - half) + '" y="' + (p.y - half) + '" width="' + (half * 2) + '" height="' + (half * 2) + '" transform="rotate(45 ' + p.x + " " + p.y + ')"><title>' + title + "</title></rect>";
+      }
+      if (p.i === incumbentIndex && !p.pass) {
+        var leadX = p.x + p.r * 0.7, leadY = p.y + p.r * 0.7;
+        calloutHtml = '<path class="callout-lead" d="M' + leadX + "," + leadY + ' L330,282"/>' +
+          '<rect class="callout-box" x="330" y="282" width="240" height="44" rx="7"/>' +
+          '<text class="callout-text" x="342" y="298">' + c.name + ", today's default:</text>" +
+          '<text class="callout-text" x="342" y="310">' + (m.correctShare * 100).toFixed(1) + "% correct, " + m.hallucinations + " fabricated answer.</text>" +
+          '<text class="callout-text" x="342" y="322">The bar allows zero.</text>';
+      } else {
+        var level = labelLevel[p.i] || 0;
+        var below = p.y < 180;
+        var short = c.name.length > 24 ? c.name.split(":").pop().replace(/^\s+/, "") : c.name;
+        if (below) {
+          labelsHtml += '<text class="pt-label" x="' + p.x + '" y="' + (p.y + p.r + 14 + level * 14) + '" text-anchor="middle">' + short + "</text>";
+        } else {
+          labelsHtml += '<text class="pt-label" x="' + p.x + '" y="' + (p.y - p.r - 8 - level * 14) + '" text-anchor="middle">' + short + "</text>";
+        }
+      }
+    });
+    if ($("sc-points-" + workloadIndex)) $("sc-points-" + workloadIndex).innerHTML = pointsHtml;
+    if ($("sc-labels-" + workloadIndex)) $("sc-labels-" + workloadIndex).innerHTML = labelsHtml;
+    if ($("sc-callout-" + workloadIndex)) $("sc-callout-" + workloadIndex).innerHTML = calloutHtml;
+  }
+
+  /**
+   * A live version of the static bridge in the section above: the same four dimensions, in the same
+   * order, using the same reportCostPerCall, but recomputed as the panel moves instead of frozen at
+   * build time. Only called for a workload whose bridge is this plain four-step kind - see the
+   * chartEnabled flag renderWaterfall was given.
+   */
+  function renderWaterfallChart(workloadIndex, w, subject, promptTokens, outputTokens, estimate, volume) {
+    var svg = $("wf-svg-" + workloadIndex);
+    if (!svg) return;
+    if (!subject || !subject.measured || promptTokens == null || outputTokens == null || volume == null) {
+      ["wf-bars-", "wf-labels-", "wf-connectors-", "wf-grid-x-", "wf-grid-labels-"].forEach(function (prefix) {
+        if ($(prefix + workloadIndex)) $(prefix + workloadIndex).innerHTML = "";
+      });
+      return;
+    }
+
+    var measuredPrompt = w.measuredPrompt, measuredOutput = w.measuredOutput;
+    var v0 = estimate == null ? 0 : estimate;
+    var v1 = reportCostPerCall(subject, promptTokens, { cacheHitRate: 0, outputTokens: outputTokens }).per_call_usd * volume;
+    var v2 = reportCostPerCall(subject, measuredPrompt, { cacheHitRate: 0, outputTokens: outputTokens }).per_call_usd * volume;
+    var v3 = reportCostPerCall(subject, measuredPrompt, { cacheHitRate: 0, outputTokens: measuredOutput }).per_call_usd * volume;
+    var v4 = reportCostPerCall(subject, measuredPrompt, { outputTokens: measuredOutput }).per_call_usd * volume;
+    var v5 = v4; // this subject's reasoning_tokens_per_call is fixed at its measured value by reportCostPerCall
+
+    var rows = [
+      { type: "total", value: v0 },
+      { type: "delta", from: v0, to: v1 },
+      { type: "total", value: v1 },
+      { type: "delta", from: v1, to: v2 },
+      { type: "delta", from: v2, to: v3 },
+      { type: "delta", from: v3, to: v4 },
+      { type: "delta", from: v4, to: v5, note: "not billed on this run" },
+      { type: "total", value: v5, emphasize: true }
+    ];
+
+    var domainMax = Math.max(v0, v1, v2, v3, v4, v5, 1) * 1.08;
+    var xL = 200, xR = 830;
+    function xw(v) { return xL + (Math.max(v, 0) / domainMax) * (xR - xL); }
+
+    var ticks = niceLinearTicks(domainMax, 4);
+    var gridXml = "", gridLabelXml = "";
+    ticks.forEach(function (t) {
+      var x = xw(t);
+      gridXml += '<line class="ax-grid" x1="' + x + '" y1="20" x2="' + x + '" y2="331"/>';
+      gridLabelXml += '<text class="ax-label" x="' + x + '" y="358" text-anchor="middle">' + fmt(t) + "</text>";
+    });
+    if ($("wf-grid-x-" + workloadIndex)) $("wf-grid-x-" + workloadIndex).innerHTML = gridXml;
+    if ($("wf-grid-labels-" + workloadIndex)) $("wf-grid-labels-" + workloadIndex).innerHTML = gridLabelXml;
+
+    var barsXml = "", labelsXml = "", connXml = "";
+    var rowY = [40, 80, 120, 160, 200, 240, 280, 320];
+    var boundaries = [v0, v1, v1, v2, v3, v4, v5];
+
+    rows.forEach(function (row, i) {
+      var y = rowY[i], half = 11;
+      if (row.type === "total") {
+        var x1 = xw(0), x2 = xw(row.value);
+        barsXml += '<rect class="wf-total" x="' + x1 + '" y="' + (y - half) + '" width="' + Math.max(0, x2 - x1) + '" height="' + (half * 2) + '" rx="3"/>';
+        if (row.emphasize) barsXml += '<rect class="wf-total-ring" x="' + (x1 - 2) + '" y="' + (y - half - 2) + '" width="' + (x2 - x1 + 4) + '" height="' + (half * 2 + 4) + '" rx="5"/>';
+        var cls = row.emphasize ? "wf-value-strong" : "wf-value";
+        labelsXml += '<text class="' + cls + '" x="' + (x2 + 8) + '" y="' + (y + 4) + '">' + fmt(row.value) + "</text>";
+      } else {
+        var lo2 = Math.min(row.from, row.to), hi2 = Math.max(row.from, row.to);
+        var xa = xw(lo2), xb = xw(hi2);
+        var tiny = (xb - xa) < 4;
+        var increase = row.to >= row.from;
+        var cls2 = increase ? "wf-up" : "wf-down";
+        if (tiny) {
+          barsXml += '<circle class="wf-dot" cx="' + xw(row.to) + '" cy="' + y + '" r="4"/>';
+          labelsXml += '<text class="wf-note-text" x="' + (xw(row.to) + 12) + '" y="' + (y + 4) + '">±$0.00' + (row.note ? " · " + row.note : "") + "</text>";
+        } else {
+          barsXml += '<rect class="' + cls2 + '" x="' + xa + '" y="' + (y - half) + '" width="' + (xb - xa) + '" height="' + (half * 2) + '" rx="3"/>';
+          var delta = row.to - row.from;
+          labelsXml += '<text class="wf-value" x="' + (xb + 8) + '" y="' + (y + 4) + '">' + (delta >= 0 ? "+" : "−") + fmt(Math.abs(delta)) + "</text>";
+        }
+      }
+      if (i < boundaries.length) {
+        var bx = xw(boundaries[i]);
+        connXml += '<line class="wf-connector" x1="' + bx + '" y1="' + (rowY[i] + half) + '" x2="' + bx + '" y2="' + (rowY[i + 1] - half) + '"/>';
+      }
+    });
+    if ($("wf-bars-" + workloadIndex)) $("wf-bars-" + workloadIndex).innerHTML = barsXml;
+    if ($("wf-labels-" + workloadIndex)) $("wf-labels-" + workloadIndex).innerHTML = labelsXml;
+    if ($("wf-connectors-" + workloadIndex)) $("wf-connectors-" + workloadIndex).innerHTML = connXml;
+
+    if ($("wf-note-line-" + workloadIndex)) {
+      $("wf-note-line-" + workloadIndex).textContent =
+        "The panel above reprices your own " + num(promptTokens) + "/" + num(outputTokens) +
+        " tokens. The steps below walk from your assumptions to the actual measured run, which used " +
+        num(measuredPrompt) + "/" + num(measuredOutput) + " tokens per call, so the final bar only moves when you change the request volume.";
+    }
+  }
 
   // -------------------------------------------------------------------------
   // tabs
@@ -2294,6 +2637,8 @@ ${CLIENT_FN_SRC}
       monthlyCell.textContent = volume == null ? "n/a" : fmt(r.per_call_usd * volume);
     });
 
+    renderScatterChart(active, CANDIDATES, results, volume);
+
     // --- the headline figure, and the two gaps, kept apart ---
     var subjectResult = subject ? results[CANDIDATES.indexOf(subject)] : null;
     var ownMonthly = null;
@@ -2334,6 +2679,10 @@ ${CLIENT_FN_SRC}
     var estValue = est.empty || est.bad ? null : est.value;
     var arith = estValue != null && ownMonthly != null ? estValue - ownMonthly : null;
     var modelGap = ownMonthly != null && measuredMonthly != null ? ownMonthly - measuredMonthly : null;
+
+    if (kind !== "image") {
+      renderWaterfallChart(active, W(), subject, promptTokens, outputTokens, estValue, volume);
+    }
 
     $("out-arith").textContent = arith == null ? "–" : (arith >= 0 ? "" : "−") + fmt(Math.abs(arith));
     $("out-model").textContent = modelGap == null ? "–" : (modelGap >= 0 ? "" : "−") + fmt(Math.abs(modelGap));
