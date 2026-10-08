@@ -21,6 +21,7 @@
  */
 
 import { formatPerMillion } from "./units.mjs";
+import { estimateTokensPerSecond } from "./throughput.mjs";
 
 // ---------------------------------------------------------------------------
 // Which route is this
@@ -98,7 +99,33 @@ export const SELF_HOST_ASSUMPTIONS = {
  * column will ever show them.
  */
 export function selfHostEstimate(profile, options = {}) {
-  const a = { ...SELF_HOST_ASSUMPTIONS, ...(options.assumptions ?? {}) };
+  // Opt-in: derive tokens_per_second from a named GPU, model size and batch instead of asserting
+  // the flat default. A bad hardware input refuses here rather than silently falling back to 80,
+  // which would mask the error behind a number that looks fine.
+  let hardwareDerived = null;
+  if (options.hardware) {
+    const derived = estimateTokensPerSecond(options.hardware);
+    if (!derived.available) return { available: false, reason: derived.reason };
+    hardwareDerived = derived;
+  }
+
+  const hardwareDefaults = hardwareDerived
+    ? {
+        tokens_per_second: hardwareDerived.tokens_per_second,
+        gpu_name: hardwareDerived.gpu,
+        thinking: `a ${options.hardware.modelParamsB}B-class model at batch ${options.hardware.batchSize ?? 1} on ${hardwareDerived.gpu}`,
+        hardware_derived: true,
+        provenance:
+          `tokens_per_second DERIVED from ${hardwareDerived.gpu}'s public spec and a stated ` +
+          `utilization assumption (${hardwareDerived.regime}), not asserted as a flat constant. ` +
+          `gpu_hourly_usd, ops_hours_per_month and ops_hourly_usd are still ASSUMED, NOT VERIFIED - ` +
+          `replace them with a real quote; each one changes the answer.`,
+      }
+    : { hardware_derived: false };
+
+  // Order matters: an explicit options.assumptions override still wins over a derived figure, the
+  // same way it already wins over the flat default.
+  const a = { ...SELF_HOST_ASSUMPTIONS, ...hardwareDefaults, ...(options.assumptions ?? {}) };
   const calls = profile?.calls_per_month;
   if (!calls) {
     return {
@@ -154,6 +181,9 @@ export function selfHostEstimate(profile, options = {}) {
     error_factor_to_compete: errorFactor,
     assumptions: a,
     workings: [
+      // The hardware -> derived-throughput chain, shown before the GPU-hours arithmetic that
+      // consumes its result, so the whole path from spec sheet to dollar figure reads in order.
+      ...(hardwareDerived?.workings ?? []),
       `${Math.round(tokensPerCall)} tokens per call x ${calls.toLocaleString()} calls = ` +
         `${Math.round(tokensPerMonth).toLocaleString()} tokens per month`,
       `${Math.round(tokensPerMonth).toLocaleString()} tokens / ${a.tokens_per_second} tokens per ` +
@@ -166,6 +196,7 @@ export function selfHostEstimate(profile, options = {}) {
         `month = ${usd(dedicated)}, which is the real price of an endpoint that answers at 3am`,
     ],
     caveats: [
+      ...(hardwareDerived?.caveats ?? []),
       "This is an estimate, not a price. No vendor is quoted anywhere in it, and it must never be " +
         "placed in a table beside the quoted prices of routes A and B as though it were one.",
       "It excludes egress, storage, redundancy, and the engineering time to make the throughput " +

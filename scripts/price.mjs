@@ -482,7 +482,19 @@ async function main() {
         "profile to compare it with."
     );
   }
-  const selfHost = selfHostEstimate(selfHostProfile, { cheapestApiMonthly: cheapestQuoted });
+  const hw = workload.self_host_hardware ?? null;
+  const selfHost = selfHostEstimate(selfHostProfile, {
+    cheapestApiMonthly: cheapestQuoted,
+    hardware: hw
+      ? {
+          gpu: hw.gpu,
+          modelParamsB: hw.model_params_b,
+          batchSize: hw.batch_size,
+          bytesPerParam: hw.bytes_per_param,
+          utilization: hw.utilization,
+        }
+      : null,
+  });
   routeEntries.push({
     route: "C",
     model: { slug: openWeight ? `${openWeight.model.slug} (weights)` : "any open-weight model" },
@@ -529,9 +541,13 @@ async function main() {
       console.log(`              ${formatUSD(e.estimate_dedicated_usd)}/month on a dedicated instance`);
       for (const w of e.workings) console.log(`              ${w}`);
       for (const c of e.caveats) console.log(`              ! ${c}`);
-      console.log("   Assumptions used (NOT VERIFIED):");
+      console.log(
+        e.assumptions.hardware_derived
+          ? "   Assumptions used (GPU throughput derived from spec; the rest still NOT VERIFIED):"
+          : "   Assumptions used (NOT VERIFIED):"
+      );
       for (const [k, v] of Object.entries(e.assumptions)) {
-        if (k === "provenance" || k === "thinking") continue;
+        if (k === "provenance" || k === "thinking" || k === "hardware_derived") continue;
         console.log(`              ${k} = ${v}`);
       }
       console.log(`              ${e.assumptions.thinking}`);

@@ -298,6 +298,7 @@ estimate. Nothing is hardcoded. One JSON file describes one workload.
 | `buyer_estimate` | `{ assumed_input_tokens_per_request, assumed_output_tokens_per_request, assumed_cost_per_month_usd }` |
 | `candidates[]` | `{ name, slug, route, source, provider? }` — `source` is `openrouter` or `huggingface` |
 | `seat_comparison` (optional) | `{ tool_name, seats, price_per_seat_usd_per_month }` — adds route D: what a seat-licensed tool costs against this workload's cheapest token-based route, at this workload's measured volume. Omit it and the page is unchanged. |
+| `self_host_hardware` (optional) | `{ gpu, model_params_b, batch_size?, bytes_per_param?, utilization? }` — derives route C's throughput from a named GPU, model size and batch instead of the flat 80-tokens/second default. `gpu` is one of `l40s`, `a100-80gb-sxm`, `h100-80gb-sxm` (see `core/throughput.mjs`). A first-order approximation: single GPU, dense-model FLOPs, no KV-cache growth with context length. Omit it and route C's figures are unchanged. |
 
 3. **Run it:** `node scripts/benchmark.mjs --workload samples/workload.mine.json`, then
    `node scripts/report.mjs --workload samples/workload.mine.json`.

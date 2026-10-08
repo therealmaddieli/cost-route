@@ -502,8 +502,24 @@ async function buildWorkload(workloadFile, catalogue, callsPerMonthOverride) {
   // priced. The image workload's self-hosting story is the licence row, and the page says so.
   const hasOpenWeights = routeEntries.some((e) => e.route === "B");
   if (hasOpenWeights) {
-    const est = selfHostEstimate(incumbent?.measured ?? null, { benchmarkMonthly: null });
-    if (est.available) routeEntries.push({ route: "C", model: null, estimate: est });
+    const hw = workload.self_host_hardware ?? null;
+    const est = selfHostEstimate(incumbent?.measured ?? null, {
+      benchmarkMonthly: null,
+      hardware: hw
+        ? {
+            gpu: hw.gpu,
+            modelParamsB: hw.model_params_b,
+            batchSize: hw.batch_size,
+            bytesPerParam: hw.bytes_per_param,
+            utilization: hw.utilization,
+          }
+        : null,
+    });
+    if (est.available) {
+      routeEntries.push({ route: "C", model: null, estimate: est });
+    } else if (hw) {
+      console.log(`  route C      hardware-derived throughput unavailable: ${est.reason}`);
+    }
   }
 
   // --- route D, the seat-licensed tool the buyer named, if any ---

@@ -188,6 +188,43 @@ test("route C is never given a monthly cost, however tempting the estimate is", 
 });
 
 // ---------------------------------------------------------------------------
+// route C: hardware-derived throughput, opt-in
+// ---------------------------------------------------------------------------
+
+const PROFILE = { calls_per_month: 20000, input_tokens_per_call: 3000, output_tokens_per_call: 18 };
+
+test("the flat default is unchanged when no hardware option is given", () => {
+  const r = selfHostEstimate(PROFILE, {});
+  assert.equal(r.assumptions.tokens_per_second, 80);
+  assert.equal(r.assumptions.hardware_derived, false);
+  assert.match(r.assumptions.provenance, /ASSUMED, NOT VERIFIED/);
+});
+
+test("a hardware option derives a different tokens_per_second than the flat default", () => {
+  const r = selfHostEstimate(PROFILE, { hardware: { gpu: "a100-80gb-sxm", modelParamsB: 8, batchSize: 4 } });
+  assert.equal(r.available, true);
+  assert.equal(r.assumptions.hardware_derived, true);
+  assert.notEqual(r.assumptions.tokens_per_second, 80);
+  assert.match(r.assumptions.provenance, /DERIVED from NVIDIA A100 80GB SXM/);
+  // The derivation's own workings travel with the estimate, not just the final number.
+  assert.ok(r.workings.some((w) => w.includes("NVIDIA A100 80GB SXM")));
+});
+
+test("an explicit tokens_per_second override still wins over a hardware-derived figure", () => {
+  const r = selfHostEstimate(PROFILE, {
+    hardware: { gpu: "a100-80gb-sxm", modelParamsB: 8, batchSize: 4 },
+    assumptions: { tokens_per_second: 999 },
+  });
+  assert.equal(r.assumptions.tokens_per_second, 999);
+});
+
+test("an unknown GPU refuses rather than silently falling back to the flat default", () => {
+  const r = selfHostEstimate(PROFILE, { hardware: { gpu: "nope", modelParamsB: 8 } });
+  assert.equal(r.available, false);
+  assert.match(r.reason, /unknown gpu "nope"/);
+});
+
+// ---------------------------------------------------------------------------
 // route D: a real price, not an estimate
 // ---------------------------------------------------------------------------
 
