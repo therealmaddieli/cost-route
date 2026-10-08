@@ -22,7 +22,7 @@ import { fileURLToPath } from "node:url";
 import { buildCatalogue, catalogueSummary, findModel } from "../core/catalogue.mjs";
 import { validateShortlist, describeValidation, requiredInputTokens } from "../core/validate.mjs";
 import { profileFromRuns, projectMonthly, costPerCall } from "../core/cost.mjs";
-import { buildRouteTable, routeFor, selfHostEstimate } from "../core/routes.mjs";
+import { buildRouteTable, routeFor, selfHostEstimate, seatEstimate } from "../core/routes.mjs";
 import { buildLedger, renderLedger, ledgerHeadline } from "../core/ledger.mjs";
 import { formatPerMillion, formatUSD, conversionIsConsistent } from "../core/units.mjs";
 
@@ -491,7 +491,30 @@ async function main() {
     facts: { license: hubCards.get(openWeight?.model.slug)?.cardData?.license ?? null, gated: null },
   });
 
-  // A, then B, then C. The order is the argument: what you are buying before what it costs.
+  // Route D, the seat-licensed tool the buyer named, if any. Reuses cheapestQuoted above - the
+  // same "is this a like-for-like comparison" question route C already asks, asked a second time
+  // for a different alternative to the same measured workload.
+  if (workload.seat_comparison) {
+    const seat = seatEstimate({
+      toolName: workload.seat_comparison.tool_name,
+      seats: workload.seat_comparison.seats,
+      pricePerSeatUsd: workload.seat_comparison.price_per_seat_usd_per_month,
+      cheapestApiMonthly: cheapestQuoted,
+    });
+    if (seat.available) {
+      routeEntries.push({
+        route: "D",
+        model: { slug: seat.tool_name },
+        monthly_cost: seat.monthly_cost,
+        cost_kind: "buyer-stated price",
+        estimate: seat,
+      });
+    } else {
+      console.log(`\n  Route D is unavailable: ${seat.reason}`);
+    }
+  }
+
+  // A, then B, then C, then D. The order is the argument: what you are buying before what it costs.
   routeEntries.sort((a, b) => String(a.route).localeCompare(String(b.route)));
 
   const table = buildRouteTable(routeEntries);

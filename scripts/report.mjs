@@ -30,7 +30,7 @@ import { fileURLToPath } from "node:url";
 import { buildCatalogue, catalogueSummary, findModel, batchDiscount, batchDistribution } from "../core/catalogue.mjs";
 import { profileFromRuns } from "../core/cost.mjs";
 import { byKind, errorKinds, measuredCostPerCall } from "../core/scorer.mjs";
-import { routeFor, buildRouteTable, selfHostEstimate } from "../core/routes.mjs";
+import { routeFor, buildRouteTable, selfHostEstimate, seatEstimate } from "../core/routes.mjs";
 import { buildLedger } from "../core/ledger.mjs";
 import { buildReportModel, renderReportHtml } from "../core/report.mjs";
 import { conversionIsConsistent } from "../core/units.mjs";
@@ -504,6 +504,41 @@ async function buildWorkload(workloadFile, catalogue, callsPerMonthOverride) {
   if (hasOpenWeights) {
     const est = selfHostEstimate(incumbent?.measured ?? null, { benchmarkMonthly: null });
     if (est.available) routeEntries.push({ route: "C", model: null, estimate: est });
+  }
+
+  // --- route D, the seat-licensed tool the buyer named, if any ---
+  //
+  // Only this one route's own call needs a cheapest-quoted figure, computed here rather than
+  // reused from route C's (which this file never computes - see the dead benchmarkMonthly option
+  // two lines up). Fixing that for C is a separate, pre-existing gap with no visible effect on
+  // this page, since C's own comparison text is never rendered here either; not this feature's bug.
+  const seatInput = workload.seat_comparison ?? null;
+  if (seatInput) {
+    const measuredMonthly = entries
+      .filter((e) => e.measured && e.measured_cost_per_call != null)
+      .map((e) => e.measured_cost_per_call * callsPerMonth)
+      .sort((a, b) => a - b);
+    const cheapestApiMonthly = measuredMonthly.length ? measuredMonthly[0] : null;
+
+    const seat = seatEstimate({
+      toolName: seatInput.tool_name,
+      seats: seatInput.seats,
+      pricePerSeatUsd: seatInput.price_per_seat_usd_per_month,
+      cheapestApiMonthly,
+    });
+    if (seat.available) {
+      routeEntries.push({
+        route: "D",
+        model: { slug: seat.tool_name },
+        monthly_cost: seat.monthly_cost,
+        // Not "quoted price": A/B come from a live-fetched catalogue, D comes from what the buyer
+        // typed into seat_comparison.
+        cost_kind: "buyer-stated price",
+        estimate: seat,
+      });
+    } else {
+      console.log(`  route D      unavailable: ${seat.reason}`);
+    }
   }
 
   return {

@@ -45,6 +45,12 @@ export const ROUTES = {
     cost_basis: "no price exists; the figure below is an estimate with stated assumptions",
     source: null,
   },
+  D: {
+    id: "D",
+    label: "Seat-licensed tool",
+    cost_basis: "a flat price per seat per month, quoted by the vendor",
+    source: null,
+  },
 };
 
 /** Resolve a candidate's route, preferring an explicit one over a guess from the source. */
@@ -181,6 +187,75 @@ export function selfHostEstimate(profile, options = {}) {
 function usd(n) {
   if (n === null || n === undefined) return "n/a";
   return n < 1 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`;
+}
+
+// ---------------------------------------------------------------------------
+// Route D. A seat-licensed tool, priced flat - a real price, not an estimate.
+// ---------------------------------------------------------------------------
+
+/**
+ * What a seat-licensed tool costs against the same workload's cheapest token-based route.
+ *
+ * Unlike route C this is never labelled an estimate: seats x price is a real number the moment
+ * the buyer names both. What IS unverified is everything the number does not say - whether the
+ * published price is the price this buyer actually pays, and whether the workload's measured
+ * volume is what these seats actually generate - and that is what the caveats carry.
+ */
+export function seatEstimate({ toolName, seats, pricePerSeatUsd, cheapestApiMonthly = null } = {}) {
+  if (!seats || seats <= 0) {
+    return { available: false, reason: "seat_comparison.seats must be a positive number" };
+  }
+  if (!pricePerSeatUsd || pricePerSeatUsd <= 0) {
+    return {
+      available: false,
+      reason: "seat_comparison.price_per_seat_usd_per_month must be a positive number",
+    };
+  }
+
+  const monthlyCost = seats * pricePerSeatUsd;
+  const comparisonRatio = cheapestApiMonthly && cheapestApiMonthly > 0 ? monthlyCost / cheapestApiMonthly : null;
+
+  const workings = [`${seats} seats x $${pricePerSeatUsd}/seat/month = ${usd(monthlyCost)}`];
+  if (cheapestApiMonthly != null) {
+    workings.push(
+      `against ${usd(cheapestApiMonthly)}/month for the same measured volume via the cheapest quoted ` +
+        `token-based route`
+    );
+  }
+
+  const caveats = [
+    `This is the published, list seat price for ${toolName ?? "this tool"}. Negotiated enterprise rates ` +
+      `are often different, and this page has no way to know this buyer's actual contract.`,
+    "A seat costs the same whether it is used lightly or heavily. Nothing here scales down for a seat " +
+      "that sends fewer requests than the others.",
+    "This comparison assumes the workload's measured monthly volume is what these seats actually " +
+      "generate. If real per-seat usage differs, scale monthly_requests before trusting the ratio below.",
+  ];
+  if (comparisonRatio != null) {
+    caveats.push(
+      comparisonRatio >= 1
+        ? `At this comparison, the seat-licensed tool costs ${comparisonRatio.toFixed(1)}x the cheapest ` +
+          `quoted token-based route on this workload.`
+        : `At this comparison, the seat-licensed tool costs ${(1 / comparisonRatio).toFixed(1)}x LESS than ` +
+          `the cheapest quoted token-based route on this workload.`
+    );
+  } else {
+    caveats.push(
+      "No quoted token-based route was available to compare against, so there is nothing to measure " +
+        "this seat price against yet."
+    );
+  }
+
+  return {
+    available: true,
+    tool_name: toolName ?? null,
+    seats,
+    price_per_seat_usd: pricePerSeatUsd,
+    monthly_cost: monthlyCost,
+    comparison_ratio: comparisonRatio,
+    workings,
+    caveats,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -366,7 +441,9 @@ export function prosAndCons(entry, extras = {}) {
 export function buildRouteTable(entries) {
   const rows = entries.map((e) => {
     const route = ROUTES[e.route] ?? null;
-    const { pros, cons } = e.route === "C"
+    // D is not "open weights vs. closed API" - prosAndCons's only axis - so it gets its own
+    // pros/cons below rather than inheriting A's closed-API framing.
+    const { pros, cons } = e.route === "C" || e.route === "D"
       ? { pros: [], cons: [] }
       : prosAndCons(e.model, { ...(e.extras ?? {}), route: route?.id ?? e.route });
 
@@ -380,6 +457,17 @@ export function buildRouteTable(entries) {
           "an on-call rota are now the buyer's."
       );
       cons.push("No price exists, so this row cannot be compared numerically with A and B.");
+    }
+
+    if (e.route === "D") {
+      pros.push(
+        "A flat, predictable monthly cost no matter how usage varies month to month, and the " +
+          "vendor's own UI and workflow come with it, not just an API."
+      );
+      cons.push(
+        "Cost scales with headcount, not with actual token consumption. A seat used lightly costs " +
+          "the same as one used heavily, and there is no per-call figure to audit."
+      );
     }
 
     return {
@@ -406,11 +494,17 @@ export function buildRouteTable(entries) {
     };
   });
 
+  const hasRouteD = rows.some((r) => r.route === "D");
+
   return {
     rows,
     // Stated once, in the table itself, so a screenshot of it carries the caveat with it.
     caveat:
       "Routes A and B are quoted prices read from live catalogues. Route C is an estimate built " +
-      "from stated assumptions and is not a price. The three are not interchangeable.",
+      "from stated assumptions and is not a price." +
+      (hasRouteD
+        ? " Route D is a real price, but a buyer-stated one this page cannot independently verify."
+        : "") +
+      ` The ${hasRouteD ? "four" : "three"} are not interchangeable.`,
   };
 }

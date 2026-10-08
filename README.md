@@ -28,19 +28,25 @@ reasoning tokens the model bills for but never shows you, and per-call charges (
 output) that sit outside token arithmetic entirely. Roughly an order of magnitude separates the
 list rate from the rate a well-structured prompt actually pays.
 
-**3. Procurement route.** Three ways to buy the same capability, and the price is only part of the
-trade:
+**3. Procurement route.** Three ways to buy the same capability, plus a fourth when the buyer names
+one, and the price is only part of the trade:
 
 | Route | What it is | Cost basis |
 |---|---|---|
 | **A** | A closed API model | Quoted price per token |
 | **B** | Open weights, served by a third party | Quoted price per token, per provider |
 | **C** | Open weights, self-hosted on your own hardware | **An estimate from named assumptions, never a price** |
+| **D** (optional) | A seat-licensed tool the buyer already pays for or is evaluating | A flat, buyer-stated price per seat per month |
 
 Route C is the row that keeps the table honest: it has no monthly figure, because no vendor charges
 for it and inventing one would be the exact mistake the page exists to prevent. The route table
 carries the things a price cannot: licence terms, gating, how many providers can serve a model, and
 what self-hosting adds in operations.
+
+Route D is the opposite case: a *real* price, just not one the catalogue can verify. It only
+appears when the workload supplies `seat_comparison` (see below), and it answers the question a
+seat-licensed tool's own pricing page never does — what the identical measured workload costs
+instead as pay-as-you-go tokens.
 
 **4. Head-to-head on the shortlist you already have.** The buyer supplies the models, the sample
 and the golden set; the tool runs them for real and reports measured quality, measured latency,
@@ -291,6 +297,7 @@ estimate. Nothing is hardcoded. One JSON file describes one workload.
 | `monthly_requests` | Your volume |
 | `buyer_estimate` | `{ assumed_input_tokens_per_request, assumed_output_tokens_per_request, assumed_cost_per_month_usd }` |
 | `candidates[]` | `{ name, slug, route, source, provider? }` — `source` is `openrouter` or `huggingface` |
+| `seat_comparison` (optional) | `{ tool_name, seats, price_per_seat_usd_per_month }` — adds route D: what a seat-licensed tool costs against this workload's cheapest token-based route, at this workload's measured volume. Omit it and the page is unchanged. |
 
 3. **Run it:** `node scripts/benchmark.mjs --workload samples/workload.mine.json`, then
    `node scripts/report.mjs --workload samples/workload.mine.json`.

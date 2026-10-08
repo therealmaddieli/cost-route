@@ -1586,9 +1586,20 @@ function renderRoutes(routes) {
       // A candidate with no measured profile has no monthly figure. The blank is filled with the
       // reason rather than with the buyer's assumed token counts, because that assumption priced as
       // though it were an observation is the exact failure this project reports on.
+      // Route D's monthly_cost is real, same as A and B, but the number that actually makes the
+      // row worth reading is the ratio against the cheapest token-based route - without this hint
+      // that ratio sits in est.comparison_ratio and is never shown anywhere on the page.
+      const seatHint =
+        r.route === "D" && est?.comparison_ratio != null
+          ? `<div class="hint" style="color:var(--assumed)">${
+              est.comparison_ratio >= 1
+                ? `${est.comparison_ratio.toFixed(1)}x the cost of`
+                : `${(1 / est.comparison_ratio).toFixed(1)}x cheaper than`
+            } the cheapest measured token-based route on this workload</div>`
+          : "";
       const cost =
         r.monthly_cost != null
-          ? `<span class="num">${usd(r.monthly_cost)}</span>`
+          ? `<span class="num">${usd(r.monthly_cost)}</span>${seatHint}`
           : est?.estimate_low_usd != null
             ? `<span class="num">${usd(est.estimate_low_usd)}</span>` +
               `<div class="hint">to ${usd(est.estimate_dedicated_usd)} if the instance is held up all month</div>` +
@@ -1646,6 +1657,10 @@ function renderHowTo(workloads, multi) {
     ? `Use the tabs: ${names.slice(0, -1).join(", ")} or ${names[names.length - 1]}.`
     : `There is one workload on this page: ${names[0]}.`;
 
+  // Only present when a tab actually has a seat comparison, so a page with none of them renders
+  // the same legend it always has.
+  const hasRouteD = workloads.some((w) => w.routes?.some((r) => r.route === "D"));
+
   return `
   <div class="card howto">
     <h3>How to read this page</h3>
@@ -1663,10 +1678,14 @@ function renderHowTo(workloads, multi) {
       <span><span class="pill pass">PASS</span> <span class="pill fail">FAIL</span> whether a candidate cleared
         the quality bar; <span class="pill unknown">not measured</span> means no usable run.</span>
     </div>
-    <p class="hint route-key"><strong>The three procurement routes.</strong>
+    <p class="hint route-key"><strong>The ${hasRouteD ? "four" : "three"} procurement routes.</strong>
       <b>A</b> closed API model, quoted per token &middot;
       <b>B</b> open weights served by a third party &middot;
-      <b>C</b> open weights self-hosted, an estimate from named assumptions and never a price.</p>
+      <b>C</b> open weights self-hosted, an estimate from named assumptions and never a price${
+        hasRouteD
+          ? ` &middot; <b>D</b> a seat-licensed tool, a flat price per seat per month quoted by the vendor`
+          : ""
+      }.</p>
   </div>`;
 }
 
@@ -1902,7 +1921,7 @@ ${w.workload.kind === "image" ? "" : `
   </section>`}
 
   <section>
-    <h2>The three procurement routes</h2>
+    <h2>The ${w.routes?.some((r) => r.route === "D") ? "four" : "three"} procurement routes</h2>
     <p class="sub">Route C is an estimate built from named assumptions, not a quoted price, and it is the only
     row in the repository with no monthly cost field. Sorting it beside A and B as though it were one more
     price is the mistake this table exists to prevent.</p>

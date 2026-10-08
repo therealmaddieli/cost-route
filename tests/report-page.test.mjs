@@ -21,6 +21,7 @@ import assert from "node:assert/strict";
 import { normaliseOpenRouterModel } from "../core/catalogue.mjs";
 import { buildReportModel, renderReportHtml } from "../core/report.mjs";
 import { buildLedger } from "../core/ledger.mjs";
+import { buildRouteTable, seatEstimate } from "../core/routes.mjs";
 
 // ---------------------------------------------------------------------------
 // fixtures
@@ -81,6 +82,7 @@ function build(over = {}) {
     workload,
     candidates: [entry],
     ledger,
+    routes: over.routes ?? [],
     catalogueMeta: { fetched_at: "2026-09-15T09:00:00.000Z" },
     benchmarkMeta: { run_at: "2026-09-15T08:14:42.871Z", items: 14, path: "out/benchmark.json" },
     generatedAt: "2026-09-15T18:00:00.000Z",
@@ -1012,4 +1014,45 @@ test("a workload scaffolded from an unknown/stale archetype says so rather than 
   const { html } = build({ workload: { archetype: "retired-archetype-slug" } });
   assert.match(html, /Scaffolded from an archetype named "retired-archetype-slug"/);
   assert.match(html, /not one core\/archetypes\.mjs currently defines/);
+});
+
+// ---------------------------------------------------------------------------
+// route D: a seat-licensed tool, on the actual rendered page
+// ---------------------------------------------------------------------------
+
+function routeDRows(cheapestApiMonthly = 150) {
+  const estimate = seatEstimate({
+    toolName: "Acme IDE",
+    seats: 10,
+    pricePerSeatUsd: 100,
+    cheapestApiMonthly,
+  });
+  return buildRouteTable([
+    {
+      route: "D",
+      model: { slug: "Acme IDE" },
+      monthly_cost: estimate.monthly_cost,
+      cost_kind: "buyer-stated price",
+      estimate,
+    },
+  ]).rows;
+}
+
+test("a page with a seat comparison shows the four-route legend and heading", () => {
+  const { html } = build({ routes: routeDRows() });
+  assert.match(html, /The four procurement routes/);
+  assert.match(html, /<b>D<\/b> a seat-licensed tool/);
+});
+
+test("a page with no seat comparison keeps the three-route legend and heading, unchanged", () => {
+  const { html } = build();
+  assert.match(html, /The three procurement routes/);
+  assert.equal(/The four procurement routes/.test(html), false);
+  assert.equal(/<b>D<\/b>/.test(html), false);
+});
+
+test("the seat-vs-token comparison ratio is visible on the page, not only in the estimate's data", () => {
+  // 10 seats x $100 = $1,000/month against a $150/month cheapest token-based route = 6.67x.
+  const { html } = build({ routes: routeDRows(150) });
+  assert.match(html, /6\.7x the cost of the cheapest measured token-based route/);
 });

@@ -16,7 +16,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { normaliseOpenRouterModel, normaliseHuggingFaceModel } from "../core/catalogue.mjs";
-import { buildRouteTable, prosAndCons, selfHostEstimate } from "../core/routes.mjs";
+import { buildRouteTable, prosAndCons, selfHostEstimate, seatEstimate } from "../core/routes.mjs";
 import { renderReportHtml, buildReportModel } from "../core/report.mjs";
 
 // ---------------------------------------------------------------------------
@@ -185,6 +185,85 @@ test("route C is never given a monthly cost, however tempting the estimate is", 
   assert.equal(rows[0].monthly_cost, null);
   assert.ok(rows[0].estimate.estimate_low_usd > 0);
   assert.equal(rows[0].cost_kind, "estimate");
+});
+
+// ---------------------------------------------------------------------------
+// route D: a real price, not an estimate
+// ---------------------------------------------------------------------------
+
+test("seatEstimate refuses without a positive seat count", () => {
+  const r = seatEstimate({ toolName: "Acme IDE", seats: 0, pricePerSeatUsd: 20 });
+  assert.equal(r.available, false);
+  assert.match(r.reason, /seats must be a positive number/);
+});
+
+test("seatEstimate refuses without a positive price", () => {
+  const r = seatEstimate({ toolName: "Acme IDE", seats: 10, pricePerSeatUsd: -5 });
+  assert.equal(r.available, false);
+  assert.match(r.reason, /price_per_seat_usd_per_month must be a positive number/);
+});
+
+test("seatEstimate multiplies seats by price, nothing cleverer", () => {
+  const r = seatEstimate({ toolName: "Acme IDE", seats: 25, pricePerSeatUsd: 20 });
+  assert.equal(r.available, true);
+  assert.equal(r.monthly_cost, 500);
+  assert.equal(r.comparison_ratio, null, "no cheapestApiMonthly was given, so no ratio to compute");
+  assert.ok(textOf(r.caveats).includes("No quoted token-based route was available"));
+});
+
+test("seatEstimate states the ratio in both directions", () => {
+  const costly = seatEstimate({ toolName: "Acme IDE", seats: 10, pricePerSeatUsd: 100, cheapestApiMonthly: 200 });
+  assert.equal(costly.comparison_ratio, 5);
+  assert.match(textOf(costly.caveats), /5\.0x the cheapest quoted token-based route/);
+
+  const cheap = seatEstimate({ toolName: "Acme IDE", seats: 10, pricePerSeatUsd: 10, cheapestApiMonthly: 200 });
+  assert.equal(cheap.comparison_ratio, 0.5);
+  assert.match(textOf(cheap.caveats), /2\.0x LESS than the cheapest quoted token-based route/);
+});
+
+test("seatEstimate always names the volume assumption, since the ratio only holds if it does", () => {
+  const r = seatEstimate({ toolName: "Acme IDE", seats: 10, pricePerSeatUsd: 20 });
+  assert.match(textOf(r.caveats), /assumes the workload's measured monthly volume is what these seats actually/);
+});
+
+test("route D gets a real monthly cost, unlike route C's estimate", () => {
+  const estimate = seatEstimate({ toolName: "Acme IDE", seats: 10, pricePerSeatUsd: 20, cheapestApiMonthly: 150 });
+  const rows = buildRouteTable([
+    { route: "D", model: { slug: "Acme IDE" }, monthly_cost: estimate.monthly_cost, cost_kind: "buyer-stated price", estimate },
+  ]).rows;
+
+  assert.equal(rows[0].monthly_cost, 200);
+  assert.equal(rows[0].cost_kind, "buyer-stated price");
+  assert.equal(rows[0].estimate.comparison_ratio, estimate.comparison_ratio);
+});
+
+test("route D gets its own pros and cons, not prosAndCons's closed-API framing", () => {
+  const estimate = seatEstimate({ toolName: "Acme IDE", seats: 10, pricePerSeatUsd: 20 });
+  const rows = buildRouteTable([
+    { route: "D", model: { slug: "Acme IDE" }, monthly_cost: estimate.monthly_cost, estimate },
+  ]).rows;
+
+  assert.ok(textOf(rows[0].pros).includes("flat, predictable monthly cost"), textOf(rows[0].pros));
+  assert.ok(textOf(rows[0].cons).includes("scales with headcount"), textOf(rows[0].cons));
+  // Nothing from prosAndCons's A/B vocabulary should have leaked in - route D is not "closed API".
+  assert.equal(textOf(rows[0].cons).includes("Vendor lock"), false, textOf(rows[0].cons));
+});
+
+test("the comparison ratio reaches the rendered route cell, not just the data", () => {
+  const estimate = seatEstimate({ toolName: "Acme IDE", seats: 10, pricePerSeatUsd: 100, cheapestApiMonthly: 200 });
+  const rows = buildRouteTable([
+    { route: "D", model: { slug: "Acme IDE" }, monthly_cost: estimate.monthly_cost, estimate },
+  ]).rows;
+  const html = reportWith(rows);
+  assert.match(html, /5\.0x the cost of/);
+});
+
+test("a workload with no seat comparison renders the same three-route legend as before", () => {
+  const rows = buildRouteTable([{ route: "A", model: openRouterModel(), monthly_cost: 4.8 }]).rows;
+  const html = reportWith(rows);
+  assert.match(html, /The three procurement routes/);
+  assert.equal(/The four procurement routes/.test(html), false);
+  assert.equal(/Route D/.test(markup(html)), false);
 });
 
 // ---------------------------------------------------------------------------
