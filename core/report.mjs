@@ -26,6 +26,8 @@
  * of prompt sizes and every candidate in the report. If the two ever disagree, the suite fails.
  */
 
+import { archetypeFor } from "./archetypes.mjs";
+
 // ---------------------------------------------------------------------------
 // the client-side cost function, embedded verbatim
 // ---------------------------------------------------------------------------
@@ -336,6 +338,10 @@ function buildOneWorkload(entry, catalogueMeta) {
       name: workload.workload_name,
       kind: workload.workload_kind ?? "text",
       task: workload.task_description,
+      // The archetype this workload was scaffolded from, if any (core/archetypes.mjs). Pure
+      // provenance: nothing here re-applies archetype defaults, it only says where buyer_estimate's
+      // numbers came from. Null on every hand-authored workload that predates archetypes.
+      archetype: workload.archetype ?? null,
       monthly_requests: volume,
       quality_bar: workload.quality_bar ?? null,
       latency_ceiling_ms: workload.latency_ceiling_ms ?? null,
@@ -1676,7 +1682,7 @@ ${workloads
         w.workload.kind === "image"
           ? `image · ${w.candidates.length} candidates · not machine-scored`
           : `text · ${w.candidates.length} candidates · ${w.benchmark?.items ?? "?"} questions`
-      }</span></button>`
+      }${w.workload.archetype ? ` · ${esc(w.workload.archetype)} archetype` : ""}</span></button>`
   )
   .join("\n")}
   </nav>`;
@@ -1748,6 +1754,21 @@ function renderAssumptions(w, model) {
       inputs.length ? ` ${inputs.join(", ")} were stated by the buyer, not measured.` : ""
     } The page's argument is the distance between those inputs and the measurement.`
   );
+
+  if (wl.archetype) {
+    const archetype = archetypeFor(wl.archetype);
+    bullets.push(
+      archetype
+        ? `<strong>Scaffolded from the "${esc(archetype.label)}" archetype.</strong> ${esc(
+            archetype.description
+          )} Its buyer_estimate defaults came from this archetype, not from this buyer - they are a ` +
+          `starting guess and should be replaced with the buyer's real numbers before the gap above is trusted.`
+        : `<strong>Scaffolded from an archetype named "${esc(
+            wl.archetype
+          )}".</strong> That archetype is not one core/archetypes.mjs currently defines, so its description ` +
+          `cannot be shown here - treat buyer_estimate as an unverified starting guess regardless.`
+    );
+  }
 
   bullets.push(
     `<strong>Prices were read at a timestamp.</strong> Catalogue rates were read ${esc(

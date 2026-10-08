@@ -274,7 +274,9 @@ node scripts/shot.mjs "http://127.0.0.1:5678/workflow/<workflow-id>" docs/n8n-ca
 Everything is an input: the workload, the shortlist, the golden set, the volume and the buyer's
 estimate. Nothing is hardcoded. One JSON file describes one workload.
 
-1. **Copy a workload file** and edit it: `cp samples/workload.legal.json samples/workload.mine.json`.
+1. **Start from an archetype, or copy a workload file.** Either
+   `node scripts/new-workload.mjs <archetype> samples/workload.mine.json` (see below), or
+   `cp samples/workload.legal.json samples/workload.mine.json`.
 2. **Fill in the inputs.** The fields that matter:
 
 | Field | What it is |
@@ -300,6 +302,27 @@ Add more than one `--workload` and the page renders them as tabs.
 **Keep the golden set yours, and keep it adversarial.** The gate is only as good as the questions.
 Include the cases you expect the cheap model to fail, and write `accept` / `reject` patterns that
 would catch a fabricated figure rather than only a wrong one.
+
+### Starting from an archetype
+
+A new prospect's workload usually has a known *shape* before it has any details: "this one looks
+like a coding assistant" is known before the real document, the real questions or the real
+shortlist are. `core/archetypes.mjs` ships four named shapes with typical token ratios -
+`coding-assistant`, `chat-support`, `document-analysis`, `agentic-tool-use` - and
+`scripts/new-workload.mjs` turns one into a starter file in one command:
+
+```bash
+node scripts/new-workload.mjs --list                                    # see all four
+node scripts/new-workload.mjs coding-assistant samples/workload.mine.json --name "Acme coding"
+```
+
+The result has `buyer_estimate` pre-filled from the archetype's typical input/output ratio, and a
+`golden_set` scaffold of placeholder questions in the usual fact/multi_hop/absent split - every one
+of them a `TODO`. **This seeds the buyer's assumption, nothing else.** It is not a measurement, it
+is not a working quality gate, and it is not re-applied anywhere once the file is saved: edit the
+`TODO`s with the buyer's real document, real questions and real shortlist the same way you would
+for a hand-copied file. The report shows which archetype a workload started from, as a labelled
+assumption, so a reader can tell a scaffolded `buyer_estimate` from one the buyer actually stated.
 
 ---
 

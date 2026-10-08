@@ -99,6 +99,10 @@ const nestedBuyer = (raw.buyer_estimate && typeof raw.buyer_estimate === "object
 const kind = String(firstOf(["workload_kind", "kind"]) || "text").toLowerCase();
 
 const workload = {
+  // Pure provenance, passed through untouched: which archetype (core/archetypes.mjs) this
+  // workload was scaffolded from, if any. Never defaulted here - an omitted archetype stays null
+  // rather than being guessed, the same way every other optional field on this node behaves.
+  archetype: (function () { const a = firstOf(["archetype"]); return a == null ? null : String(a); })(),
   workload_name: String(firstOf(["workload_name", "name"]) || "Untitled workload"),
   workload_kind: kind === "image" ? "image" : "text",
   task_description: String(firstOf(["task_description", "task"]) || ""),

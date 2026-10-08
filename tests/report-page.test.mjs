@@ -61,6 +61,7 @@ const WORKLOAD = {
 
 function build(over = {}) {
   const model = incumbentModel();
+  const workload = { ...WORKLOAD, ...over.workload };
   const entry = {
     key: `openrouter:${model.slug}`,
     model,
@@ -72,12 +73,12 @@ function build(over = {}) {
     ...over.entry,
   };
 
-  const ledger = buildLedger(model, WORKLOAD.buyer_estimate, MEASURED_PROFILE, 20000, {
+  const ledger = buildLedger(model, workload.buyer_estimate, MEASURED_PROFILE, 20000, {
     providerNote: "route A does not expose a provider choice",
   });
 
   const reportModel = buildReportModel({
-    workload: WORKLOAD,
+    workload,
     candidates: [entry],
     ledger,
     catalogueMeta: { fetched_at: "2026-09-15T09:00:00.000Z" },
@@ -956,4 +957,59 @@ test("the paragraph the server sends is the paragraph the script would write", (
   );
   // And the same words the client writes, which is the point of the assertion.
   assert.match(flatten(two[1]), /Everything measured is fixed and timestamped\. Everything here is a guess/);
+});
+
+// ---------------------------------------------------------------------------
+// workload archetypes
+// ---------------------------------------------------------------------------
+
+/** Two tabs, so renderTabs (only called when multi) is actually exercised. */
+function buildMulti(secondWorkloadOverride) {
+  const model = incumbentModel();
+  const makeEntry = (workloadOverride) => {
+    const workload = { ...WORKLOAD, ...workloadOverride };
+    const candidateEntry = {
+      key: `openrouter:${model.slug}`,
+      model,
+      route: "A",
+      provider: null,
+      incumbent: true,
+      measured: MEASURED_PROFILE,
+      effective_input_per_m: 0.0764,
+    };
+    const ledger = buildLedger(model, workload.buyer_estimate, MEASURED_PROFILE, 20000, {
+      providerNote: "route A does not expose a provider choice",
+    });
+    return { workload, candidates: [candidateEntry], ledger };
+  };
+
+  const reportModel = buildReportModel({
+    workloads: [makeEntry({}), makeEntry(secondWorkloadOverride)],
+    catalogueMeta: { fetched_at: "2026-09-15T09:00:00.000Z" },
+    generatedAt: "2026-09-15T18:00:00.000Z",
+  });
+  return renderReportHtml(reportModel);
+}
+
+test("a workload with no archetype renders exactly as before", () => {
+  const { html } = build();
+  assert.equal(/archetype/i.test(html), false, "an unscaffolded workload should never mention an archetype");
+});
+
+test("a workload scaffolded from a known archetype is badged on its tab", () => {
+  const html = buildMulti({ archetype: "document-analysis", workload_name: "Second workload" });
+  assert.match(html, /document-analysis archetype/);
+});
+
+test("a workload scaffolded from a known archetype shows its label and description in the assumptions box", () => {
+  const { html } = build({ workload: { archetype: "document-analysis" } });
+  assert.match(html, /Scaffolded from the "Document analysis" archetype/);
+  // The archetype's own description text, not a paraphrase invented by the renderer.
+  assert.match(html, /A full document in the prompt, a short extracted answer out/);
+});
+
+test("a workload scaffolded from an unknown/stale archetype says so rather than rendering nothing", () => {
+  const { html } = build({ workload: { archetype: "retired-archetype-slug" } });
+  assert.match(html, /Scaffolded from an archetype named "retired-archetype-slug"/);
+  assert.match(html, /not one core\/archetypes\.mjs currently defines/);
 });

@@ -111,12 +111,12 @@
       },
       "type": "n8n-nodes-base.formTrigger",
       "typeVersion": 2.2,
-      "webhookId": "4e0c5b5b-5f7b-4729-8860-bf8af2494307",
+      "webhookId": "bea483fa-4873-41bb-9970-5e67ea0a8754",
       "position": [
         -760,
         40
       ],
-      "id": "81b92966-948b-4881-b8c9-b170c0b43ce7",
+      "id": "68d58839-3058-4f23-b1ec-c2b37ed15496",
       "name": "Form: your workload"
     },
     {
@@ -128,12 +128,12 @@
       },
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "webhookId": "f94a5cae-0b43-432b-befc-838b6628911a",
+      "webhookId": "b045e821-e390-439e-aa06-70d670bf7667",
       "position": [
         -760,
         320
       ],
-      "id": "6e2465bb-a132-47cf-922d-eb20c21656b3",
+      "id": "c163fd10-da19-4ab7-8085-776d04fbd7da",
       "name": "Webhook: POST a workload"
     },
     {
@@ -144,7 +144,7 @@
         -760,
         600
       ],
-      "id": "311f0bc7-b32f-471b-b54b-30b6de736b18",
+      "id": "e2c5c2ca-2e4e-449a-a7e5-02c6ffa36034",
       "name": "Manual Trigger"
     },
     {
@@ -158,13 +158,13 @@
         -500,
         600
       ],
-      "id": "8683f99d-4596-4743-ba22-c216ac4e5ba3",
+      "id": "039e42e5-01d0-49bc-a255-a938be856571",
       "name": "Sample workload (demo)"
     },
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// The one place a customer's workload is read and validated. Three entry points reach this node -\n// the form, the webhook and the bundled sample - and each arrives in a slightly different shape, so\n// the unwrapping happens here and nowhere else. Everything downstream reads the canonical object\n// this node emits, which is why no shortlist, contract, quality bar or volume is baked into any\n// later node.\nconst firstItem = $input.first();\nconst rawItem = (firstItem && firstItem.json) ? firstItem.json : {};\n\n// Unwrap the wrappers n8n adds: {workload: ...} from the sample node, {body: ...} from a webhook.\nlet raw = rawItem;\nif (raw.workload && typeof raw.workload === \"object\") raw = raw.workload;\nelse if (raw.body && typeof raw.body === \"object\") raw = raw.body;\n\nfunction firstOf(names) {\n  for (const n of names) if (raw[n] !== undefined && raw[n] !== null && raw[n] !== \"\") return raw[n];\n  return undefined;\n}\nfunction asJson(value, label) {\n  if (value === undefined) return undefined;\n  if (typeof value !== \"string\") return value;\n  try { return JSON.parse(value); } catch (e) { throw new Error(label + \" is not valid JSON: \" + e.message); }\n}\nfunction num(value, fallback) {\n  if (value === undefined || value === null || value === \"\") return fallback;\n  const n = Number(value);\n  return isFinite(n) ? n : fallback;\n}\nfunction pick(flatName, nested, nestedKey, fallback) {\n  const flat = firstOf([flatName]);\n  if (flat !== undefined) return num(flat, fallback);\n  if (nested && nested[nestedKey] !== undefined) return num(nested[nestedKey], fallback);\n  return fallback;\n}\n\nconst nestedBar = (raw.quality_bar && typeof raw.quality_bar === \"object\") ? raw.quality_bar : {};\nconst nestedBuyer = (raw.buyer_estimate && typeof raw.buyer_estimate === \"object\") ? raw.buyer_estimate : {};\nconst kind = String(firstOf([\"workload_kind\", \"kind\"]) || \"text\").toLowerCase();\n\nconst workload = {\n  workload_name: String(firstOf([\"workload_name\", \"name\"]) || \"Untitled workload\"),\n  workload_kind: kind === \"image\" ? \"image\" : \"text\",\n  task_description: String(firstOf([\"task_description\", \"task\"]) || \"\"),\n  answer_instruction: String(firstOf([\"answer_instruction\"]) || \"Answer the question in ONE short sentence. State the figure or provision directly. Do not explain your reasoning.\"),\n  contract: (function () { const c = firstOf([\"contract\", \"contract_text\", \"sample_input\"]); return c == null ? null : String(c); })(),\n  prompt: (function () { const p = firstOf([\"prompt\"]); return p == null ? null : String(p); })(),\n  golden_set: asJson(firstOf([\"golden_set\", \"goldenSet\"]), \"golden_set\") || [],\n  candidates: asJson(firstOf([\"candidates\", \"shortlist\"]), \"candidates\") || [],\n  quality_bar: {\n    min_correct_share: pick(\"min_correct_share\", nestedBar, \"min_correct_share\", 0.75),\n    max_hallucinations: pick(\"max_hallucinations\", nestedBar, \"max_hallucinations\", 0),\n  },\n  latency_ceiling_ms: pick(\"latency_ceiling_ms\", raw, \"latency_ceiling_ms\", 15000),\n  monthly_requests: pick(\"monthly_requests\", raw, \"monthly_requests\", 1000),\n  buyer_estimate: {\n    assumed_input_tokens_per_request: pick(\"assumed_input_tokens_per_request\", nestedBuyer, \"assumed_input_tokens_per_request\", 1500),\n    assumed_output_tokens_per_request: pick(\"assumed_output_tokens_per_request\", nestedBuyer, \"assumed_output_tokens_per_request\", 50),\n    assumed_cost_per_month_usd: (function () {\n      const flat = firstOf([\"assumed_cost_per_month_usd\"]);\n      const v = flat !== undefined ? flat : nestedBuyer.assumed_cost_per_month_usd;\n      return (v === undefined || v === null || v === \"\") ? null : num(v, null);\n    })(),\n  },\n};\n\n// Validate, and say which field is wrong. A form submission that fails silently, or with a stack\n// trace, is worse than one that names the missing input.\nconst problems = [];\nif (!workload.candidates.length) problems.push(\"candidates: supply at least one {name, slug, source, route}\");\nif (workload.workload_kind === \"image\") {\n  if (!workload.prompt) problems.push(\"prompt: an image workload needs the exact prompt to send\");\n} else {\n  if (!workload.golden_set.length) problems.push(\"golden_set: a text workload needs questions with known answers\");\n  if (!workload.contract) problems.push(\"contract: a text workload needs the document to review\");\n}\nif (workload.candidates.some(function (c) { return !c || !c.slug || !c.source; })) {\n  problems.push(\"candidates: every entry needs a slug and a source (openrouter or huggingface)\");\n}\nif (problems.length) throw new Error(\"workload rejected - \" + problems.join(\"; \"));\n\n// Fill the defaults a customer should not have to think about.\nworkload.candidates = workload.candidates\n  .filter(function (c) { return c && c.slug && c.source; })\n  .map(function (c) {\n    return {\n      name: c.name || c.slug,\n      slug: c.slug,\n      source: c.source,\n      route: c.route || (c.source === \"huggingface\" ? \"B\" : \"A\"),\n      provider: c.provider || null,\n      incumbent: !!c.incumbent,\n    };\n  });\n\nreturn [{ json: { workload: workload } }];"
+        "jsCode": "// The one place a customer's workload is read and validated. Three entry points reach this node -\n// the form, the webhook and the bundled sample - and each arrives in a slightly different shape, so\n// the unwrapping happens here and nowhere else. Everything downstream reads the canonical object\n// this node emits, which is why no shortlist, contract, quality bar or volume is baked into any\n// later node.\nconst firstItem = $input.first();\nconst rawItem = (firstItem && firstItem.json) ? firstItem.json : {};\n\n// Unwrap the wrappers n8n adds: {workload: ...} from the sample node, {body: ...} from a webhook.\nlet raw = rawItem;\nif (raw.workload && typeof raw.workload === \"object\") raw = raw.workload;\nelse if (raw.body && typeof raw.body === \"object\") raw = raw.body;\n\nfunction firstOf(names) {\n  for (const n of names) if (raw[n] !== undefined && raw[n] !== null && raw[n] !== \"\") return raw[n];\n  return undefined;\n}\nfunction asJson(value, label) {\n  if (value === undefined) return undefined;\n  if (typeof value !== \"string\") return value;\n  try { return JSON.parse(value); } catch (e) { throw new Error(label + \" is not valid JSON: \" + e.message); }\n}\nfunction num(value, fallback) {\n  if (value === undefined || value === null || value === \"\") return fallback;\n  const n = Number(value);\n  return isFinite(n) ? n : fallback;\n}\nfunction pick(flatName, nested, nestedKey, fallback) {\n  const flat = firstOf([flatName]);\n  if (flat !== undefined) return num(flat, fallback);\n  if (nested && nested[nestedKey] !== undefined) return num(nested[nestedKey], fallback);\n  return fallback;\n}\n\nconst nestedBar = (raw.quality_bar && typeof raw.quality_bar === \"object\") ? raw.quality_bar : {};\nconst nestedBuyer = (raw.buyer_estimate && typeof raw.buyer_estimate === \"object\") ? raw.buyer_estimate : {};\nconst kind = String(firstOf([\"workload_kind\", \"kind\"]) || \"text\").toLowerCase();\n\nconst workload = {\n  // Pure provenance, passed through untouched: which archetype (core/archetypes.mjs) this\n  // workload was scaffolded from, if any. Never defaulted here - an omitted archetype stays null\n  // rather than being guessed, the same way every other optional field on this node behaves.\n  archetype: (function () { const a = firstOf([\"archetype\"]); return a == null ? null : String(a); })(),\n  workload_name: String(firstOf([\"workload_name\", \"name\"]) || \"Untitled workload\"),\n  workload_kind: kind === \"image\" ? \"image\" : \"text\",\n  task_description: String(firstOf([\"task_description\", \"task\"]) || \"\"),\n  answer_instruction: String(firstOf([\"answer_instruction\"]) || \"Answer the question in ONE short sentence. State the figure or provision directly. Do not explain your reasoning.\"),\n  contract: (function () { const c = firstOf([\"contract\", \"contract_text\", \"sample_input\"]); return c == null ? null : String(c); })(),\n  prompt: (function () { const p = firstOf([\"prompt\"]); return p == null ? null : String(p); })(),\n  golden_set: asJson(firstOf([\"golden_set\", \"goldenSet\"]), \"golden_set\") || [],\n  candidates: asJson(firstOf([\"candidates\", \"shortlist\"]), \"candidates\") || [],\n  quality_bar: {\n    min_correct_share: pick(\"min_correct_share\", nestedBar, \"min_correct_share\", 0.75),\n    max_hallucinations: pick(\"max_hallucinations\", nestedBar, \"max_hallucinations\", 0),\n  },\n  latency_ceiling_ms: pick(\"latency_ceiling_ms\", raw, \"latency_ceiling_ms\", 15000),\n  monthly_requests: pick(\"monthly_requests\", raw, \"monthly_requests\", 1000),\n  buyer_estimate: {\n    assumed_input_tokens_per_request: pick(\"assumed_input_tokens_per_request\", nestedBuyer, \"assumed_input_tokens_per_request\", 1500),\n    assumed_output_tokens_per_request: pick(\"assumed_output_tokens_per_request\", nestedBuyer, \"assumed_output_tokens_per_request\", 50),\n    assumed_cost_per_month_usd: (function () {\n      const flat = firstOf([\"assumed_cost_per_month_usd\"]);\n      const v = flat !== undefined ? flat : nestedBuyer.assumed_cost_per_month_usd;\n      return (v === undefined || v === null || v === \"\") ? null : num(v, null);\n    })(),\n  },\n};\n\n// Validate, and say which field is wrong. A form submission that fails silently, or with a stack\n// trace, is worse than one that names the missing input.\nconst problems = [];\nif (!workload.candidates.length) problems.push(\"candidates: supply at least one {name, slug, source, route}\");\nif (workload.workload_kind === \"image\") {\n  if (!workload.prompt) problems.push(\"prompt: an image workload needs the exact prompt to send\");\n} else {\n  if (!workload.golden_set.length) problems.push(\"golden_set: a text workload needs questions with known answers\");\n  if (!workload.contract) problems.push(\"contract: a text workload needs the document to review\");\n}\nif (workload.candidates.some(function (c) { return !c || !c.slug || !c.source; })) {\n  problems.push(\"candidates: every entry needs a slug and a source (openrouter or huggingface)\");\n}\nif (problems.length) throw new Error(\"workload rejected - \" + problems.join(\"; \"));\n\n// Fill the defaults a customer should not have to think about.\nworkload.candidates = workload.candidates\n  .filter(function (c) { return c && c.slug && c.source; })\n  .map(function (c) {\n    return {\n      name: c.name || c.slug,\n      slug: c.slug,\n      source: c.source,\n      route: c.route || (c.source === \"huggingface\" ? \"B\" : \"A\"),\n      provider: c.provider || null,\n      incumbent: !!c.incumbent,\n    };\n  });\n\nreturn [{ json: { workload: workload } }];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -172,7 +172,7 @@
         -240,
         320
       ],
-      "id": "f07ec39d-086a-4940-87ea-42e1fa8d21f8",
+      "id": "ab1dd54f-431b-48b6-9175-70cd5cd794f5",
       "name": "Normalise workload"
     },
     {
@@ -187,7 +187,7 @@
         -20,
         140
       ],
-      "id": "b77488f5-c508-41bc-b527-04d645dc5f45",
+      "id": "3362d904-8491-4a92-b33d-a0e328a42600",
       "name": "OpenRouter catalogue"
     },
     {
@@ -202,7 +202,7 @@
         -20,
         500
       ],
-      "id": "8797d3ea-9608-4c71-a98d-a867f610dde7",
+      "id": "23de3f26-4dd9-4539-bb65-7c4870dd13f1",
       "name": "HF router catalogue"
     },
     {
@@ -217,7 +217,7 @@
         220,
         320
       ],
-      "id": "b2d7d1bd-b703-4c0a-9e4a-ab7b8e1f11e9",
+      "id": "a80181e2-3357-449e-a4a7-00889ba068f5",
       "name": "Merge catalogues"
     },
     {
@@ -231,7 +231,7 @@
         460,
         320
       ],
-      "id": "5f14137f-4406-4b53-b796-c251c291a477",
+      "id": "347dac8e-26d3-4759-b9f0-8f599e209d42",
       "name": "Plan the run"
     },
     {
@@ -245,7 +245,7 @@
         720,
         320
       ],
-      "id": "a4905e41-596f-47bd-9887-d4460c4677fe",
+      "id": "8e0e24e9-b7d5-4336-8ccc-1899e0075282",
       "name": "Call candidates (timed)"
     },
     {
@@ -259,7 +259,7 @@
         980,
         320
       ],
-      "id": "3bd356b6-8f88-4e41-a189-12f27f360780",
+      "id": "613f0ac7-205e-4539-8d2f-0ccf3be88b10",
       "name": "Score: the quality gate"
     },
     {
@@ -273,7 +273,7 @@
         1240,
         320
       ],
-      "id": "39c32f65-42d3-42aa-8dcb-dea82e608597",
+      "id": "dd9cb8d2-48b0-404c-9bfd-4329a5aad2e1",
       "name": "Cost engine"
     },
     {
@@ -287,7 +287,7 @@
         1500,
         320
       ],
-      "id": "361722b6-dc4f-45db-9d0d-61f6e6c54d34",
+      "id": "37d4e81c-cb74-4c24-bdd1-0f3a3e8eff7c",
       "name": "Three routes"
     },
     {
@@ -301,7 +301,7 @@
         1760,
         320
       ],
-      "id": "5dff1629-8578-459e-9855-6e3ee4ababcc",
+      "id": "88b9c9ba-64c7-4c8b-8c89-529e72d65f72",
       "name": "Estimate vs measured"
     },
     {
@@ -315,7 +315,7 @@
         2020,
         320
       ],
-      "id": "65e8f103-a062-498d-be1d-d1382c28aed8",
+      "id": "72609db7-2d44-4dc0-88d4-8b201bb0b9d8",
       "name": "Render summary HTML"
     },
     {
@@ -331,7 +331,7 @@
         2280,
         320
       ],
-      "id": "f148d60f-3144-418d-9eb5-e591efef3a02",
+      "id": "f1cfdeaf-bdf0-4d37-91c7-ea468cbc86d0",
       "name": "Save summary",
       "onError": "continueRegularOutput"
     },
@@ -348,7 +348,7 @@
         -900,
         -320
       ],
-      "id": "ba8bc63e-71a4-46df-a784-d95fdba8520e",
+      "id": "b188bc32-6ddf-4185-aae4-543d5f8d3821",
       "name": "Note: How to supply the workload."
     },
     {
@@ -364,7 +364,7 @@
         -240,
         -140
       ],
-      "id": "5cb8aeb4-ff53-41eb-a0ba-c2a2a8721c6f",
+      "id": "5b0a46c5-ce45-461c-92cd-de3589758a56",
       "name": "Note: Step 1 - requirements gate, before price"
     },
     {
@@ -380,7 +380,7 @@
         640,
         -140
       ],
-      "id": "134e6a9d-e280-4f4a-87b2-6fb301e1671d",
+      "id": "83adef0c-3a6c-4744-853f-0cb070c939d5",
       "name": "Note: Step 2 - measure, don't multiply."
     },
     {
@@ -396,7 +396,7 @@
         1460,
         -140
       ],
-      "id": "a0d6fb33-21f9-4c3d-967a-cc628ef332b4",
+      "id": "7f30bb97-bde3-4c8d-9523-8b8cc859dda3",
       "name": "Note: Steps 3 and 4 - price the survivors, the"
     }
   ],
